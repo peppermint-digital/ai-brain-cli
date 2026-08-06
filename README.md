@@ -35,7 +35,23 @@ steht der Gerätename, zugerechnet wird die Arbeit dir.
 
 ## Installieren
 
-### Linux und macOS
+### Von deiner AI-Brain-Instanz (empfohlen)
+
+```bash
+curl -fsSL https://deine-brain-domain.de/install.sh | sh
+```
+
+Jede Instanz liefert den Companion selbst aus. Der Vorteil: **Die Domain steckt
+schon im Befehl** — das Skript merkt sie sich, und danach genügt
+`ai-brain-companion connect` ohne Argument.
+
+Ohne AI Brain ist der Companion ohnehin nutzlos; die Instanz ist also sein
+natürlicher Ort. Wer AI Brain selbst betreibt, muss seine Leute damit nicht auf
+ein fremdes Repository schicken.
+
+Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`.
+
+### Von GitHub
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.sh | sh

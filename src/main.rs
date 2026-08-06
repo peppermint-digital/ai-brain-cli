@@ -30,7 +30,9 @@ const USAGE: &str = "\
 AI Brain Companion
 
 Aufrufe:
-  ai-brain-companion connect <domain>   Rechner mit einer AI-Brain-Instanz verbinden
+  ai-brain-companion connect [domain]   Rechner mit einer AI-Brain-Instanz verbinden
+                                        (ohne Angabe: die Instanz, von der dieses
+                                        Programm kam)
   ai-brain-companion mcp                Als MCP-Server laufen (startet Claude Code selbst)
   ai-brain-companion sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-companion publish <name>     Einen lokalen Eintrag ins Repository geben

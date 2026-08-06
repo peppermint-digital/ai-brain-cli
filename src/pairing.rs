@@ -78,10 +78,16 @@ pub fn connect(args: &[String]) -> Result<(), String> {
         i += 1;
     }
 
-    let domain = domain.ok_or_else(|| {
-        "Welche Instanz? Beispiel:\n  ai-brain-companion connect brain.proxy.peppermint-digital.com"
-            .to_string()
-    })?;
+    // Kam das Programm vom Installationsskript einer Instanz, steht deren
+    // Adresse schon fest — dann braucht `connect` kein Argument. Genau dafuer
+    // liefert die Instanz das Skript selbst aus (#336).
+    let domain = match domain {
+        Some(d) => d,
+        None => gemerkte_instanz().ok_or_else(|| {
+            "Welche Instanz? Beispiel:\n  ai-brain-companion connect brain.example.com\n\n             Kam das Programm von einer Instanz, steht ihre Adresse in\n             ~/.config/ai-brain-companion/instanz — dort ist sie offenbar nicht."
+                .to_string()
+        })?,
+    };
 
     let base_url = discovery::normalize_domain(&domain);
 
@@ -269,6 +275,23 @@ fn provision(endpoint: &str, access_token: &str, device_name: &str) -> Result<Pr
         .map_err(|e| format!("Gerätezugang konnte nicht angelegt werden: {}", describe(e)))?
         .into_json()
         .map_err(|e| format!("Antwort der Provisionierung ist unlesbar: {e}"))
+}
+
+/// Die Adresse, die das Installationsskript der Instanz hinterlassen hat.
+///
+/// Wer `curl -fsSL https://brain.example.com/install.sh | sh` ausfuehrt, hat
+/// die Instanz bereits genannt — sie dann noch einmal eintippen zu muessen
+/// waere eine ueberfluessige Gelegenheit, sich zu vertippen.
+fn gemerkte_instanz() -> Option<String> {
+    let pfad = crate::config::config_dir().ok()?.join("instanz");
+    let inhalt = std::fs::read_to_string(pfad).ok()?;
+    let adresse = inhalt.trim().to_string();
+
+    if adresse.is_empty() {
+        None
+    } else {
+        Some(adresse)
+    }
 }
 
 /// Standard-Gerätename: `konto@rechner`.
