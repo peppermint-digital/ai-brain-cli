@@ -67,6 +67,61 @@ struct ItemDetail {
 struct ItemFile {
     path: String,
     content: String,
+    /// `utf-8` oder `base64`. Nicht jede Datei im Repository ist Text — kami
+    /// bringt eine 9 MB grosse ZIP mit. Ohne Kennzeichnung schriebe man deren
+    /// Base64-Text als Datei und haette Datenmuell auf der Platte.
+    #[serde(default = "default_encoding")]
+    encoding: String,
+}
+
+fn default_encoding() -> String {
+    "utf-8".to_string()
+}
+
+impl ItemFile {
+    fn bytes(&self) -> Result<Vec<u8>, String> {
+        match self.encoding.as_str() {
+            "base64" => decode_base64(&self.content)
+                .ok_or_else(|| format!("{} ist als base64 gekennzeichnet, laesst sich aber nicht dekodieren", self.path)),
+            _ => Ok(self.content.as_bytes().to_vec()),
+        }
+    }
+}
+
+/// Base64 ohne zusaetzliche Abhaengigkeit — die Aufgabe ist klein genug.
+fn decode_base64(input: &str) -> Option<Vec<u8>> {
+    const TABELLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+    let mut wert = [255u8; 256];
+    for (i, z) in TABELLE.iter().enumerate() {
+        wert[*z as usize] = i as u8;
+    }
+
+    let mut out = Vec::with_capacity(input.len() / 4 * 3);
+    let mut puffer = 0u32;
+    let mut bits = 0u32;
+
+    for z in input.bytes() {
+        if z == b'=' || z == b'\n' || z == b'\r' {
+            continue;
+        }
+
+        let v = wert[z as usize];
+
+        if v == 255 {
+            return None;
+        }
+
+        puffer = (puffer << 6) | v as u32;
+        bits += 6;
+
+        if bits >= 8 {
+            bits -= 8;
+            out.push((puffer >> bits) as u8);
+        }
+    }
+
+    Some(out)
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -244,6 +299,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     let mut geschrieben = 0usize;
     let mut uebersprungen = 0usize;
+    let mut fehlgeschlagen = 0usize;
 
     for (item, verdict, target) in &plan {
         let schreiben = match verdict {
@@ -259,7 +315,17 @@ pub fn run(args: &[String]) -> Result<(), String> {
             continue;
         }
 
-        let detail = fetch_item(&connection, &token, &item.kind, &item.slug)?;
+        let detail = match fetch_item(&connection, &token, &item.kind, &item.slug) {
+            Ok(detail) => detail,
+            // Ein Eintrag, der sich nicht holen laesst, darf nicht die
+            // restlichen 160 verhindern. Genau das ist passiert: skill/kami
+            // antwortete mit 500, und der Lauf endete mittendrin.
+            Err(err) => {
+                eprintln!("Uebersprungen: {err}");
+                fehlgeschlagen += 1;
+                continue;
+            }
+        };
 
         // Vor dem Überschreiben die lokale Fassung sichern. Eine Entscheidung,
         // die sich rückgängig machen lässt, ist nie die falsche.
@@ -291,6 +357,10 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     println!();
     println!("{geschrieben} geschrieben.");
+
+    if fehlgeschlagen > 0 {
+        println!("{fehlgeschlagen} nicht abrufbar — siehe Meldungen oben.");
+    }
 
     if uebersprungen > 0 {
         println!(
@@ -404,7 +474,7 @@ fn write_item(target: &Path, detail: &ItemDetail) -> Result<(), String> {
                 .map_err(|e| format!("{} lässt sich nicht anlegen: {e}", parent.display()))?;
         }
 
-        fs::write(&full, &file.content)
+        fs::write(&full, file.bytes()?)
             .map_err(|e| format!("{} lässt sich nicht schreiben: {e}", full.display()))?;
     }
 
@@ -443,10 +513,9 @@ fn files_match(target: &Path, detail: &ItemDetail) -> Result<bool, String> {
             return Ok(false);
         }
 
-        let vorhanden = fs::read_to_string(&full)
-            .map_err(|e| format!("{} nicht lesbar: {e}", full.display()))?;
+        let vorhanden = fs::read(&full).map_err(|e| format!("{} nicht lesbar: {e}", full.display()))?;
 
-        if vorhanden != file.content {
+        if vorhanden != file.bytes()? {
             return Ok(false);
         }
     }
