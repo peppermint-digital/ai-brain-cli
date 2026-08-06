@@ -95,8 +95,12 @@ enum Verdict {
     Konflikt,
     /// Identisch.
     Unveraendert,
-    /// Liegt lokal, aber der Companion hat es nie geschrieben.
+    /// Liegt lokal, der Companion hat es nie geschrieben, und der Inhalt
+    /// weicht ab.
     Fremd,
+    /// Liegt lokal, der Companion hat es nie geschrieben — aber der Inhalt ist
+    /// identisch. Wird ohne Schreiben in den Stand übernommen.
+    Uebernommen,
     /// Kein Dateibestand — wird grundsätzlich nicht angefasst.
     KeinDateibestand,
 }
@@ -132,12 +136,27 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let claude = claude_dir()?;
 
     let mut plan: Vec<(ManifestItem, Verdict, PathBuf)> = Vec::new();
+    // Einträge, die schon richtig auf der Platte liegen: nur in den Stand
+    // aufnehmen, nicht schreiben.
+    let mut uebernehmen: Vec<(String, ItemDetail, PathBuf)> = Vec::new();
 
     for item in &manifest.items {
         if let Some(filter) = &only {
             if &item.slug != filter {
                 continue;
             }
+        }
+
+        // Ein Eintrag ohne Slug hat kein Ziel — sein Pfad waere das
+        // Elternverzeichnis. Ueberspringen statt daran zu scheitern: ein
+        // einzelner fehlerhafter Datensatz auf der Instanz darf nicht jeden
+        // Rechner lahmlegen (erlebt mit Item 189, Bug #542).
+        if item.slug.trim().is_empty() {
+            eprintln!(
+                "Uebersprungen: ein Eintrag vom Typ {} hat keinen Namen — auf der Instanz nachtragen.",
+                item.kind
+            );
+            continue;
         }
 
         let layout = manifest.layout.get(&item.kind);
@@ -159,7 +178,30 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
         let verdict = match (target.exists(), state.items.get(&key)) {
             (false, _) => Verdict::Neu,
-            (true, None) => Verdict::Fremd,
+            // Verzeichnis da, aber der Companion kennt es nicht. Statt es
+            // pauschal als fremd zu behandeln, wird nachgesehen: Auf einem
+            // Rechner, der die Skills schon von Hand hat, sind sie meist
+            // identisch — dann gibt es nichts zu tun ausser sie zu übernehmen.
+            //
+            // Verglichen werden die Dateien selbst, nicht Prüfsummen. Das ist
+            // der einzige Vergleich, der über die Sprachgrenze hinweg
+            // verlässlich ist.
+            (true, None) => match fetch_item(&connection, &token, &item.kind, &item.slug) {
+                Ok(detail) => {
+                    if files_match(&target, &detail)? {
+                        uebernehmen.push((key.clone(), detail, target.clone()));
+                        Verdict::Uebernommen
+                    } else {
+                        Verdict::Fremd
+                    }
+                }
+                // Laesst sich der Eintrag nicht holen, ist das kein Grund den
+                // ganzen Lauf abzubrechen. Im Zweifel gilt: nicht anfassen.
+                Err(err) => {
+                    eprintln!("Konnte {}/{} nicht pruefen: {err}", item.kind, item.slug);
+                    Verdict::Fremd
+                }
+            },
             (true, Some(known)) => {
                 let lokal_gleich = hash_directory(&target)? == known.local_hash;
                 let fern_gleich = item.checksum == known.remote_checksum;
@@ -174,6 +216,22 @@ pub fn run(args: &[String]) -> Result<(), String> {
         };
 
         plan.push((item.clone(), verdict, target));
+    }
+
+    // Übernehmen kostet nichts und nimmt niemandem etwas weg — das passiert
+    // auch ohne --apply, sonst meldet jeder Lauf dieselben Einträge erneut.
+    if !uebernehmen.is_empty() {
+        for (key, detail, target) in &uebernehmen {
+            state.items.insert(
+                key.clone(),
+                SyncedItem {
+                    remote_checksum: detail.checksum.clone(),
+                    local_hash: hash_directory(target)?,
+                },
+            );
+        }
+
+        save_state(&state)?;
     }
 
     report(&plan);
@@ -277,8 +335,13 @@ fn report(plan: &[(ManifestItem, Verdict, PathBuf)]) {
         "hier UND dort geändert — wird ohne --force nicht angefasst",
     );
     zeige(
+        &Verdict::Uebernommen,
+        "Lag schon richtig hier",
+        "inhaltlich identisch — ab jetzt bekannt, nichts geschrieben",
+    );
+    zeige(
         &Verdict::Fremd,
-        "Liegt hier, aber nicht von mir",
+        "Liegt hier in anderer Fassung",
         "wird ohne --force nicht angefasst",
     );
     zeige(
@@ -364,6 +427,31 @@ fn copy_directory(from: &Path, to: &Path) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+/// Stimmt das, was auf der Platte liegt, mit dem Eintrag der Instanz überein?
+///
+/// Verglichen werden die Dateien der Instanz. Zusätzliche lokale Dateien
+/// (`.DS_Store`, Notizen, was auch immer) machen den Eintrag NICHT
+/// unterschiedlich — sie wären sonst der Grund, warum auf jedem zweiten
+/// Rechner ein Konflikt gemeldet wird, den niemand verursacht hat.
+fn files_match(target: &Path, detail: &ItemDetail) -> Result<bool, String> {
+    for file in &detail.files {
+        let full = target.join(&file.path);
+
+        if !full.exists() {
+            return Ok(false);
+        }
+
+        let vorhanden = fs::read_to_string(&full)
+            .map_err(|e| format!("{} nicht lesbar: {e}", full.display()))?;
+
+        if vorhanden != file.content {
+            return Ok(false);
+        }
+    }
+
+    Ok(true)
 }
 
 /// Hash über alle Dateien eines Verzeichnisses — Pfade eingeschlossen, sortiert.
