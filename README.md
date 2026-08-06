@@ -51,6 +51,13 @@ ein fremdes Repository schicken.
 
 Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`.
 
+> **Für Betreiber:** Die Wege kommen mit AI Brain mit, die Programme nicht — 8 MB
+> Binärdateien gehören nicht ins Repository. Einmal
+> `php artisan companion:fetch` auf der Instanz, danach versorgt sie ihre eigenen
+> Rechner. Ohne Internetzugang: `companion:fetch --von=/pfad/zum/ordner`. Liegt
+> für eine Plattform nichts bereit, sagt das Skript das und verweist auf den
+> Quelltext, statt eine kaputte Datei zu installieren.
+
 ### Von GitHub
 
 ```bash
