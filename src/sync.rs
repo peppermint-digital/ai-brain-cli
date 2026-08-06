@@ -329,8 +329,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
         // Vor dem Überschreiben die lokale Fassung sichern. Eine Entscheidung,
         // die sich rückgängig machen lässt, ist nie die falsche.
+        //
+        // Die Sicherung liegt bewusst NICHT neben dem Original: Claude Code
+        // durchsucht ~/.claude/skills/ und lud ein dort abgelegtes
+        // `pm-task.lokal` prompt als zweiten, gleichnamigen Skill. Eine
+        // Sicherung, die das System verwirrt, ist keine.
         if target.exists() && matches!(verdict, Verdict::Konflikt | Verdict::Fremd) {
-            let backup = target.with_file_name(format!("{}.lokal", item.slug));
+            let backup = backup_dir()?.join(&item.kind).join(&item.slug);
 
             if backup.exists() {
                 fs::remove_dir_all(&backup).ok();
@@ -575,6 +580,13 @@ fn claude_dir() -> Result<PathBuf, String> {
     let home = std::env::var_os("HOME").ok_or_else(|| "HOME ist nicht gesetzt.".to_string())?;
 
     Ok(PathBuf::from(home).join(".claude"))
+}
+
+/// Wo überschriebene lokale Fassungen landen.
+///
+/// Ausserhalb von ~/.claude/, damit Claude Code sie nicht als Skills einliest.
+fn backup_dir() -> Result<PathBuf, String> {
+    Ok(config::config_dir()?.join("gesicherte-fassungen"))
 }
 
 fn state_path() -> Result<PathBuf, String> {
