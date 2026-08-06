@@ -147,6 +147,39 @@ auf, damit du weißt, dass es ihn gibt — eingerichtet wird er von Hand.
 | `--only <name>` | Nur diesen einen Eintrag |
 | `--force` | Auch überschreiben, wo lokal geändert wurde |
 
+`--force` allein tut nichts — es braucht zusätzlich `--apply`.
+
+### Auswahl pro Rechner
+
+Unter „Meine Geräte" legst du fest, was auf diesem Rechner liegen soll. Der
+Companion meldet sich mit seinem Gerätezugang an, die Instanz weiß also, wer
+fragt, und schickt genau diese Auswahl.
+
+**Wählst du nichts aus, bekommst du alles.** Eine Auswahl schränkt ein, sie
+sperrt nicht — ein frisch verbundener Rechner verhält sich also wie vorher.
+
+Abgewähltes wird **nicht gelöscht**. `sync` meldet es nur; entfernen tust du es
+selbst.
+
+## Etwas zurückgeben
+
+```bash
+ai-brain-companion publish mein-skill
+ai-brain-companion publish mein-skill --grund "Abschnitt zu X ergänzt"
+```
+
+Nimmt einen Eintrag aus `~/.claude/skills/` oder `~/.claude/agents/` und legt
+ihn im Repository ab. Existiert er dort schon, wird er aktualisiert statt
+verdoppelt — die vorherige Fassung bleibt als Version erhalten und ist
+zurückholbar.
+
+Das ist bewusst ein eigener Befehl und passiert **nie** als Nebeneffekt von
+`sync`. Ein Skill, den du für dich gebaut hast, mit Notizen oder Pfaden darin,
+soll nicht ungefragt in einer Ablage landen, die alle lesen können.
+
+Binärdateien überspringt der Befehl und sagt welche — lieber melden als etwas
+Kaputtes hochladen.
+
 ### Wie Änderungen erkannt werden
 
 Der Companion merkt sich beim Schreiben zwei Dinge: die Prüfsumme, die die

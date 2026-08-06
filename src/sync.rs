@@ -616,3 +616,122 @@ fn save_state(state: &SyncState) -> Result<(), String> {
 
     fs::write(&path, json).map_err(|e| format!("{} lässt sich nicht schreiben: {e}", path.display()))
 }
+
+// ---------------------------------------------------------------- geben ----
+
+/// Einen lokal gebauten Eintrag ins Repository geben.
+///
+/// Bewusst ein eigener Befehl und kein Nebeneffekt von `sync`: Ein Skill, den
+/// jemand fuer sich gebaut hat — mit Notizen, Pfaden oder Zugangswegen darin —
+/// landet sonst ungefragt in einer Ablage, die alle lesen koennen.
+pub fn publish(args: &[String]) -> Result<(), String> {
+    let mut name: Option<String> = None;
+    let mut grund: Option<String> = None;
+
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
+            "--grund" => {
+                i += 1;
+                grund = Some(
+                    args.get(i)
+                        .ok_or_else(|| "--grund braucht einen Text.".to_string())?
+                        .clone(),
+                );
+            }
+            other if other.starts_with("--") => return Err(format!("Unbekannte Option: {other}")),
+            other => name = Some(other.to_string()),
+        }
+        i += 1;
+    }
+
+    let name = name.ok_or_else(|| {
+        "Welcher Eintrag? Beispiel:\n  ai-brain-companion publish mein-skill".to_string()
+    })?;
+
+    let connection = config::load()?;
+    let claude = claude_dir()?;
+
+    // Suchen statt raten lassen: der Nutzer tippt den Namen, nicht den Typ.
+    let (kind, verzeichnis, haupt) = if claude.join("skills").join(&name).exists() {
+        ("skill", claude.join("skills").join(&name), "SKILL.md")
+    } else if claude.join("agents").join(&name).exists() {
+        ("agent", claude.join("agents").join(&name), "AGENTS.md")
+    } else {
+        return Err(format!(
+            "„{name}“ liegt weder unter ~/.claude/skills/ noch unter ~/.claude/agents/."
+        ));
+    };
+
+    let hauptdatei = verzeichnis.join(haupt);
+
+    let inhalt = fs::read_to_string(&hauptdatei)
+        .map_err(|e| format!("{} nicht lesbar: {e}", hauptdatei.display()))?;
+
+    let mut dateien: Vec<(String, Vec<u8>)> = Vec::new();
+    sammle(&verzeichnis, &verzeichnis, &mut dateien)?;
+    dateien.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut anhang = Vec::new();
+    let mut uebersprungen = Vec::new();
+
+    for (pfad, roh) in &dateien {
+        if pfad == haupt {
+            continue;
+        }
+
+        // Binaerdateien laesst dieser Weg bewusst aus: der Endpunkt nimmt Text
+        // entgegen, und stillschweigend etwas Kaputtes hochzuladen waere
+        // schlimmer, als es zu melden.
+        match String::from_utf8(roh.clone()) {
+            Ok(text) => anhang.push(serde_json::json!({ "path": pfad, "content": text })),
+            Err(_) => uebersprungen.push(pfad.clone()),
+        }
+    }
+
+    let token = crate::mcp::access_token(&connection)?;
+    let url = format!("{}/api/v1/repository/items", connection.base_url);
+
+    let antwort: serde_json::Value = ureq::post(&url)
+        .set("Authorization", &format!("Bearer {token}"))
+        .set("Accept", "application/json")
+        .send_json(serde_json::json!({
+            "type": kind,
+            "slug": name,
+            "name": name,
+            "content": inhalt,
+            "files": anhang,
+            "change_reason": grund.unwrap_or_else(|| format!("Vom Rechner {} zurueckgegeben", connection.device_name)),
+        }))
+        .map_err(|e| match e {
+            ureq::Error::Status(code, resp) => {
+                let body = resp.into_string().unwrap_or_default();
+                format!("Abgelehnt (HTTP {code}): {}", body.trim())
+            }
+            other => format!("Nicht uebertragbar: {other}"),
+        })?
+        .into_json()
+        .map_err(|e| format!("Antwort unlesbar: {e}"))?;
+
+    let status = antwort
+        .get("status")
+        .and_then(|v| v.as_str())
+        .unwrap_or("uebertragen");
+
+    println!("{name} ({kind}) — {status}.");
+    println!("  {} Datei(en) uebertragen", anhang.len() + 1);
+
+    if !uebersprungen.is_empty() {
+        println!();
+        println!("Nicht uebertragen, weil keine Textdateien:");
+
+        for pfad in &uebersprungen {
+            println!("  - {pfad}");
+        }
+    }
+
+    println!();
+    println!("Im Repository sichtbar unter {}/command-center/repository", connection.base_url);
+
+    Ok(())
+}

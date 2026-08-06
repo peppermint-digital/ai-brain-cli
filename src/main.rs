@@ -33,6 +33,7 @@ Aufrufe:
   ai-brain-companion connect <domain>   Rechner mit einer AI-Brain-Instanz verbinden
   ai-brain-companion mcp                Als MCP-Server laufen (startet Claude Code selbst)
   ai-brain-companion sync               Skills und Agents aus dem Repository abgleichen
+  ai-brain-companion publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-companion status             Zeigt die aktuelle Verbindung
   ai-brain-companion configure-claude   Traegt den MCP-Server in Claude Code ein
   ai-brain-companion disconnect         Entfernt die lokale Verbindung
@@ -80,6 +81,7 @@ fn main() -> ExitCode {
         Some("connect") => pairing::connect(&args[1..]),
         Some("mcp") => mcp::serve(),
         Some("sync") => sync::run(&args[1..]),
+        Some("publish") => sync::publish(&args[1..]),
         Some("status") => config::print_status(),
         Some("configure-claude") => configure_claude(),
         Some("disconnect") => config::disconnect(),
