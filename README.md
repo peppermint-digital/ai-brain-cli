@@ -115,12 +115,58 @@ passiert.
 Nachträglich umbenennen kannst du jedes Gerät unter „Meine Geräte" über das
 Stift-Symbol. Neu koppeln ist dafür nicht nötig.
 
+## Skills und Agents abgleichen
+
+```bash
+ai-brain-companion sync           # zeigt nur, was sich ändern würde
+ai-brain-companion sync --apply   # schreibt
+```
+
+Skills landen unter `~/.claude/skills/`, Agents unter `~/.claude/agents/`.
+
+### Was dabei nicht passiert
+
+**Was nur bei dir liegt, bleibt liegen.** Ein Skill, den du selbst gebaut hast,
+wird nicht gelöscht, nicht überschrieben und nicht hochgeladen. Die geteilte
+Ablage geht er nichts an, solange du ihn nicht dorthin gibst.
+
+**Was du geändert hast, wird nicht stillschweigend ersetzt.** Hat sich ein
+Eintrag auf beiden Seiten bewegt, meldet `sync` einen Konflikt und lässt ihn in
+Ruhe. Mit `--force` überschreibst du trotzdem — deine Fassung wandert dann als
+`<name>.lokal` daneben, statt verloren zu gehen.
+
+**Hooks werden nie eingerichtet.** Ein Hook ist keine Datei, sondern ein Befehl
+in der `settings.json`, der von selbst ausgeführt wird. Er taucht in der Liste
+auf, damit du weißt, dass es ihn gibt — eingerichtet wird er von Hand.
+
+### Optionen
+
+| Option | Wirkung |
+|---|---|
+| `--apply` | Änderungen wirklich schreiben |
+| `--only <name>` | Nur diesen einen Eintrag |
+| `--force` | Auch überschreiben, wo lokal geändert wurde |
+
+### Wie Änderungen erkannt werden
+
+Der Companion merkt sich beim Schreiben zwei Dinge: die Prüfsumme, die die
+Instanz damals nannte, und einen eigenen Hash über die Dateien, wie er sie
+hingelegt hat. Beim nächsten Lauf vergleicht er den ersten mit der Instanz
+(hat sich dort etwas getan?) und den zweiten mit der Platte (hat hier jemand
+Hand angelegt?).
+
+Beide Vergleiche laufen gegen den eigenen Wert. Die Server-Prüfsumme
+nachzurechnen wäre naheliegend, aber zerbrechlich: Zwei Sprachen müssten bis
+aufs letzte Escaping identisch serialisieren, und ein einziger Unterschied
+ließe alles als „geändert" erscheinen.
+
 ## Weitere Befehle
 
 ```bash
-ai-brain-companion status       # Zeigt die aktuelle Verbindung
-ai-brain-companion disconnect   # Entfernt die lokale Verbindung
-ai-brain-companion mcp          # Läuft als MCP-Server (startet Claude Code selbst)
+ai-brain-companion status            # Zeigt die aktuelle Verbindung
+ai-brain-companion configure-claude  # Trägt den MCP-Server nachträglich ein
+ai-brain-companion disconnect        # Entfernt die lokale Verbindung
+ai-brain-companion mcp               # Läuft als MCP-Server (startet Claude Code selbst)
 ```
 
 `mcp` rufst du nicht von Hand auf — das macht Claude Code. Der Befehl hält die

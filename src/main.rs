@@ -22,6 +22,7 @@ mod config;
 mod discovery;
 mod mcp;
 mod pairing;
+mod sync;
 
 use std::process::ExitCode;
 
@@ -31,16 +32,46 @@ AI Brain Companion
 Aufrufe:
   ai-brain-companion connect <domain>   Rechner mit einer AI-Brain-Instanz verbinden
   ai-brain-companion mcp                Als MCP-Server laufen (startet Claude Code selbst)
+  ai-brain-companion sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-companion status             Zeigt die aktuelle Verbindung
+  ai-brain-companion configure-claude   Traegt den MCP-Server in Claude Code ein
   ai-brain-companion disconnect         Entfernt die lokale Verbindung
 
 Beispiel:
   ai-brain-companion connect brain.proxy.peppermint-digital.com
 
+Optionen für `sync`:
+  --apply               Änderungen wirklich schreiben (ohne: nur anzeigen)
+  --only <name>         Nur diesen einen Eintrag
+  --force               Auch überschreiben, wo lokal geändert wurde
+                        (die lokale Fassung wird als .lokal gesichert)
+
 Optionen für `connect`:
   --name <Gerätename>   Abweichender Gerätename (Standard: Hostname)
   --no-claude-config    Claude-Code-Konfiguration nicht anfassen
 ";
+
+/// Trägt den MCP-Server nachträglich in Claude Code ein.
+///
+/// Gebraucht von allen, die mit `--no-claude-config` gekoppelt haben — und
+/// beim Umstellen eines Rechners, der vorher auf einem anderen Weg an AI Brain
+/// hing. Ohne diesen Befehl bliebe als Ausweg nur, ein zweites Mal zu koppeln,
+/// und das legt einen überflüssigen zweiten Gerätezugang an.
+fn configure_claude() -> Result<(), String> {
+    // Erst prüfen, ob überhaupt eine Verbindung existiert: sonst schreiben wir
+    // einen MCP-Eintrag, der beim Start sofort scheitert.
+    let connection = config::load()?;
+
+    let path = config::write_claude_config()?;
+
+    println!("Eingetragen in {}", path.display());
+    println!("  Instanz : {}", connection.base_url);
+    println!("  Gerät   : {}", connection.device_name);
+    println!();
+    println!("Starte Claude Code neu, damit der Eintrag greift.");
+
+    Ok(())
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -48,7 +79,9 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("connect") => pairing::connect(&args[1..]),
         Some("mcp") => mcp::serve(),
+        Some("sync") => sync::run(&args[1..]),
         Some("status") => config::print_status(),
+        Some("configure-claude") => configure_claude(),
         Some("disconnect") => config::disconnect(),
         Some("--help") | Some("-h") | Some("help") | None => {
             print!("{USAGE}");

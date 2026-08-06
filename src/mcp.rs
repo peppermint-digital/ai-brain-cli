@@ -105,6 +105,14 @@ pub fn serve() -> Result<(), String> {
     Ok(())
 }
 
+/// Einmalig einen Token holen — für Aufrufe ausserhalb der Dauerschleife
+/// (etwa die Synchronisation), die keinen Zwischenspeicher brauchen.
+pub fn access_token(connection: &Connection) -> Result<String, String> {
+    let mut cache = None;
+
+    token(connection, &mut cache)
+}
+
 /// Holt einen Token und behält ihn, bis er fast abgelaufen ist.
 ///
 /// Der Puffer von 60 Sekunden ist kein Zierrat: ohne ihn läuft ein Token
