@@ -45,7 +45,10 @@ Optionen für `sync`:
   --apply               Änderungen wirklich schreiben (ohne: nur anzeigen)
   --only <name>         Nur diesen einen Eintrag
   --force               Auch überschreiben, wo lokal geändert wurde
-                        (die lokale Fassung wird als .lokal gesichert)
+                        (die lokale Fassung wird gesichert)
+  --aufraeumen          Nicht mehr ausgewählte Einträge entfernen — aber nur die,
+                        die der Companion selbst geschrieben hat und die seither
+                        unverändert sind
 
 Optionen für `connect`:
   --name <Gerätename>   Abweichender Gerätename (Standard: Hostname)

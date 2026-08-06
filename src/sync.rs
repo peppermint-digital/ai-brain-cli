@@ -163,6 +163,7 @@ enum Verdict {
 pub fn run(args: &[String]) -> Result<(), String> {
     let mut apply = false;
     let mut force = false;
+    let mut aufraeumen = false;
     let mut only: Option<String> = None;
 
     let mut i = 0;
@@ -170,6 +171,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         match args[i].as_str() {
             "--apply" => apply = true,
             "--force" => force = true,
+            "--aufraeumen" => aufraeumen = true,
             "--only" => {
                 i += 1;
                 only = Some(
@@ -289,6 +291,62 @@ pub fn run(args: &[String]) -> Result<(), String> {
         save_state(&state)?;
     }
 
+    // Was der Companion einmal geschrieben hat, jetzt aber nicht mehr im
+    // Manifest steht: abgewaehlt oder aus dem Repository verschwunden.
+    //
+    // Entfernt wird NUR, was er selbst angelegt hat UND was seither unveraendert
+    // ist. Eigenbauten, veraenderte Fassungen und alles, was er nie geschrieben
+    // hat, bleibt liegen — auch mit --aufraeumen. Eine Synchronisation, die
+    // fremde Arbeit loeschen kann, ist keine Synchronisation mehr.
+    let im_manifest: std::collections::BTreeSet<String> = manifest
+        .items
+        .iter()
+        .map(|i| format!("{}/{}", i.kind, i.slug))
+        .collect();
+
+    let mut ueberzaehlig: Vec<(String, PathBuf)> = Vec::new();
+
+    for (key, bekannt) in &state.items {
+        if im_manifest.contains(key) {
+            continue;
+        }
+
+        let (kind, slug) = match key.split_once('/') {
+            Some(paar) => paar,
+            None => continue,
+        };
+
+        let verzeichnis = claude
+            .join(if kind == "agent" { "agents" } else { "skills" })
+            .join(slug);
+
+        if !verzeichnis.exists() {
+            continue;
+        }
+
+        if hash_directory(&verzeichnis)? == bekannt.local_hash {
+            ueberzaehlig.push((key.clone(), verzeichnis));
+        } else {
+            println!();
+            println!(
+                "Nicht mehr ausgewaehlt, aber hier geaendert — bleibt liegen: {key}"
+            );
+        }
+    }
+
+    if !ueberzaehlig.is_empty() {
+        println!();
+        println!("Nicht mehr ausgewaehlt ({})", ueberzaehlig.len());
+
+        if !aufraeumen {
+            println!("  bleibt liegen — mit --aufraeumen entfernen");
+        }
+
+        for (key, _) in ueberzaehlig.iter().take(20) {
+            println!("  - {key}");
+        }
+    }
+
     report(&plan);
 
     if !apply {
@@ -300,6 +358,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut geschrieben = 0usize;
     let mut uebersprungen = 0usize;
     let mut fehlgeschlagen = 0usize;
+    let mut entfernt = 0usize;
 
     for (item, verdict, target) in &plan {
         let schreiben = match verdict {
@@ -358,10 +417,24 @@ pub fn run(args: &[String]) -> Result<(), String> {
         geschrieben += 1;
     }
 
+    if aufraeumen {
+        for (key, verzeichnis) in &ueberzaehlig {
+            fs::remove_dir_all(verzeichnis)
+                .map_err(|e| format!("{} nicht entfernbar: {e}", verzeichnis.display()))?;
+
+            state.items.remove(key);
+            entfernt += 1;
+        }
+    }
+
     save_state(&state)?;
 
     println!();
     println!("{geschrieben} geschrieben.");
+
+    if entfernt > 0 {
+        println!("{entfernt} entfernt.");
+    }
 
     if fehlgeschlagen > 0 {
         println!("{fehlgeschlagen} nicht abrufbar — siehe Meldungen oben.");

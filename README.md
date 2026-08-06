@@ -146,8 +146,10 @@ auf, damit du weißt, dass es ihn gibt — eingerichtet wird er von Hand.
 | `--apply` | Änderungen wirklich schreiben |
 | `--only <name>` | Nur diesen einen Eintrag |
 | `--force` | Auch überschreiben, wo lokal geändert wurde |
+| `--aufraeumen` | Nicht mehr Ausgewähltes entfernen (siehe unten) |
 
-`--force` allein tut nichts — es braucht zusätzlich `--apply`.
+`--force` und `--aufraeumen` tun allein nichts — sie brauchen zusätzlich
+`--apply`.
 
 ### Auswahl pro Rechner
 
@@ -155,11 +157,30 @@ Unter „Meine Geräte" legst du fest, was auf diesem Rechner liegen soll. Der
 Companion meldet sich mit seinem Gerätezugang an, die Instanz weiß also, wer
 fragt, und schickt genau diese Auswahl.
 
-**Wählst du nichts aus, bekommst du alles.** Eine Auswahl schränkt ein, sie
-sperrt nicht — ein frisch verbundener Rechner verhält sich also wie vorher.
+Pro Gerät gibt es zwei Betriebsarten:
 
-Abgewähltes wird **nicht gelöscht**. `sync` meldet es nur; entfernen tust du es
-selbst.
+| Modus | Bedeutung |
+|---|---|
+| **Alles** | Der Rechner bekommt das gesamte Repository |
+| **Nur Auswahl** | Genau das Angehakte — auch nichts, wenn nichts angehakt ist |
+
+**Neu verbundene Rechner starten auf „Nur Auswahl"** und damit leer. Du
+entscheidest, was drauf soll, statt 194 Einträge vorgesetzt zu bekommen.
+
+### Abgewähltes entfernen
+
+```bash
+ai-brain-companion sync --apply --aufraeumen
+```
+
+Entfernt Einträge, die nicht mehr ausgewählt sind. Aber nur die, die **der
+Companion selbst geschrieben hat** und die seither **unverändert** sind.
+
+Alles andere bleibt liegen, auch mit `--aufraeumen`: deine Eigenbauten, alles
+was du verändert hast, und alles was er nie angelegt hat. Eine Synchronisation,
+die fremde Arbeit löschen kann, ist keine Synchronisation mehr.
+
+Ohne `--aufraeumen` wird nichts entfernt — es wird nur gemeldet.
 
 ## Etwas zurückgeben
 
