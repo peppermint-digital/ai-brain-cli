@@ -78,12 +78,26 @@ jobs:
 
   release:
     needs: build
+    # `always()` ist hier kein Schlamperei-Schalter, sondern die Lehre aus dem
+    # ersten Versuch: Drei Ziele waren fertig, das vierte hing auf einem
+    # ausgemusterten Laeufer — und weil der Release-Schritt auf ALLE wartete,
+    # kam gar nichts heraus. Ein Release mit drei von vier Programmen ist
+    # besser als keins: install.sh faellt fuer die fehlende Plattform ohnehin
+    # auf den Quelltext zurueck.
+    if: always()
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
+
+      - name: Was ist angekommen?
+        run: |
+          ls -la dist/ || true
+          # Ohne ein einziges Programm waere ein Release sinnlos — dann lieber
+          # scheitern, damit es auffaellt.
+          [ -n "$(ls -A dist 2>/dev/null)" ] || { echo "Kein einziges Ziel gebaut."; exit 1; }
 
       - name: Pruefsummen
         run: |
