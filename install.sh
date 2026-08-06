@@ -25,6 +25,52 @@ need() {
     command -v "$1" >/dev/null 2>&1 || die "$2"
 }
 
+# --------------------------------------------------------------- fertig ----
+
+# Welches gebaute Programm passt zu diesem Rechner?
+ziel_erkennen() {
+    system="$(uname -s)"
+    arch="$(uname -m)"
+
+    case "$system/$arch" in
+        Linux/x86_64)          echo "x86_64-unknown-linux-gnu" ;;
+        Darwin/arm64|Darwin/aarch64) echo "aarch64-apple-darwin" ;;
+        Darwin/x86_64)         echo "x86_64-apple-darwin" ;;
+        *)                     echo "" ;;
+    esac
+}
+
+# Versucht, das gebaute Programm aus dem letzten Release zu holen.
+#
+# Gelingt das, spart es dem Nutzer eine Rust-Installation und eine halbe Minute
+# Bauzeit. Gelingt es nicht — kein Release, unbekannte Plattform, kein Netz —
+# faellt das Skript auf den Quelltext zurueck, statt abzubrechen.
+download_release() {
+    ziel="$(ziel_erkennen)"
+
+    [ -n "$ziel" ] || return 1
+    command -v curl >/dev/null 2>&1 || return 1
+
+    say "Suche ein gebautes Programm fuer $ziel …"
+
+    url="$(curl -fsSL "https://api.github.com/repos/peppermint-digital/ai-brain-companion/releases/latest" 2>/dev/null \
+        | grep -o "https://[^\"]*ai-brain-companion-${ziel}" \
+        | head -1)"
+
+    [ -n "$url" ] || return 1
+
+    work="$(mktemp -d)"
+    trap 'rm -rf "$work"' EXIT INT TERM
+
+    curl -fsSL "$url" -o "$work/ai-brain-companion" || return 1
+
+    mkdir -p "$INSTALL_DIR"
+    install -m 755 "$work/ai-brain-companion" "$INSTALL_DIR/$BIN_NAME"
+
+    say "Fertiges Programm uebernommen — kein Bau noetig."
+    return 0
+}
+
 # ---------------------------------------------------------------- bauen ----
 
 build_from_source() {
@@ -116,7 +162,10 @@ setup_path() {
 say "AI Brain Companion — Installation"
 say ""
 
-build_from_source
+if ! download_release; then
+    say "Kein passendes Release gefunden — baue aus dem Quelltext."
+    build_from_source
+fi
 
 say ""
 setup_path

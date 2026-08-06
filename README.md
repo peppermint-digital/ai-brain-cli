@@ -35,26 +35,35 @@ steht der Gerätename, zugerechnet wird die Arbeit dir.
 
 ## Installieren
 
+### Linux und macOS
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.sh | sh
 ```
 
-Das Skript baut aus dem Quelltext, legt das Programm nach `~/.local/bin` und
-trägt dieses Verzeichnis in `~/.zshrc` und `~/.bashrc` ein, falls es dort noch
+Holt das gebaute Programm aus dem letzten Release, legt es nach `~/.local/bin`
+und trägt das Verzeichnis in `~/.zshrc` und `~/.bashrc` ein, falls es dort noch
 fehlt. Mehrfaches Ausführen ändert nichts doppelt; einen vorhandenen eigenen
 Eintrag lässt es in Ruhe. `~/.bash_profile` und `~/.profile` werden nur
-angefasst, wenn sie schon existieren — neue Anmeldedateien legt es dir nicht an.
+angefasst, wenn sie schon existieren.
 
 Danach eine neue Shell öffnen (oder `. ~/.zshrc`).
 
-**Voraussetzung:** Rust, weil aktuell aus dem Quelltext gebaut wird. Fehlt es,
-sagt das Skript es dir:
+Gibt es kein passendes Release, **baut das Skript aus dem Quelltext** — dann
+braucht es Rust (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
+und etwa eine halbe Minute.
 
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+### Windows
+
+```powershell
+irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.ps1 | iex
 ```
 
-Der erste Bau dauert etwa eine halbe Minute.
+Legt das Programm nach `%LOCALAPPDATA%\Programs\ai-brain-companion` und
+ergänzt den PATH deines Benutzers — nicht den des Systems, das bräuchte
+Administratorrechte. Danach ein neues Terminal öffnen.
+
+Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
 
 ### Von Hand
 
@@ -67,12 +76,13 @@ install -m 755 target/release/ai-brain-companion ~/.local/bin/
 
 ### Plattformen
 
-Linux läuft und ist Ende zu Ende getestet. macOS ist der nächste Schritt,
-Windows danach.
+Linux ist Ende zu Ende getestet. macOS und Windows werden gebaut und
+veröffentlicht, sind aber noch nicht im Feld erprobt.
 
-Für beide braucht es signierte Binaries — sonst blocken Gatekeeper und
-SmartScreen die Datei. Das hängt an CI, einem Apple-Developer-Konto und einem
-Windows-Zertifikat, nicht am Code.
+**Signaturen brauchst du dafür nicht.** Ein Programm, das per `curl` im Terminal
+ankommt, bekommt unter macOS kein Quarantäne-Merkmal — Gatekeeper greift bei
+`.dmg`, `.pkg` und allem, was im Finder doppelgeklickt wird. Unter Windows
+entfernt das Installationsskript die Herkunftsmarkierung.
 
 ## Verbinden
 

@@ -1,0 +1,88 @@
+name: Release
+
+# Gebaute Programme statt „installier dir erst mal Rust".
+#
+# Die Läufer bauen dort, wo das Ziel auch läuft — Kreuzkompilieren von Linux
+# nach macOS bräuchte das Apple-SDK und ist die deutlich mühsamere Variante.
+# Für öffentliche Repositories sind macOS- und Windows-Läufer kostenlos.
+#
+# Signieren ist bewusst NICHT dabei: Ein Programm, das per curl im Terminal
+# ankommt, bekommt unter macOS kein Quarantäne-Merkmal und läuft ohne Signatur.
+# Nötig wäre sie für .dmg/.pkg oder alles, was jemand im Finder doppelklickt.
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Version, z.B. v0.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: ${{ matrix.ziel }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            ziel: x86_64-unknown-linux-gnu
+            datei: ai-brain-companion
+          - os: macos-latest
+            ziel: aarch64-apple-darwin
+            datei: ai-brain-companion
+          - os: macos-13
+            ziel: x86_64-apple-darwin
+            datei: ai-brain-companion
+          - os: windows-latest
+            ziel: x86_64-pc-windows-msvc
+            datei: ai-brain-companion.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust einrichten
+        run: rustup target add ${{ matrix.ziel }}
+
+      - name: Bauen
+        run: cargo build --release --target ${{ matrix.ziel }}
+
+      - name: Umbenennen
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/${{ matrix.ziel }}/release/${{ matrix.datei }}" \
+             "dist/ai-brain-companion-${{ matrix.ziel }}${{ matrix.datei == 'ai-brain-companion.exe' && '.exe' || '' }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.ziel }}
+          path: dist/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Pruefsummen
+        run: |
+          cd dist
+          sha256sum * > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Veroeffentlichen
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: dist/*
+          generate_release_notes: true
