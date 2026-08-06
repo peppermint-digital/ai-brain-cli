@@ -229,17 +229,21 @@ mod tests {
     /// Laune bestehen oder scheitern.
     #[test]
     fn pfade_finden_auch_ohne_home() {
-        let sicherung: Vec<(&str, Option<std::ffi::OsString>)> = ["HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"]
-            .iter()
-            .map(|k| (*k, std::env::var_os(k)))
-            .collect();
+        let sicherung: Vec<(&str, Option<std::ffi::OsString>)> =
+            ["HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"]
+                .iter()
+                .map(|k| (*k, std::env::var_os(k)))
+                .collect();
 
         for (k, _) in &sicherung {
             std::env::remove_var(k);
         }
 
         // Ohne jede Angabe darf nicht geraten werden.
-        assert!(heimat().is_err(), "ohne HOME und USERPROFILE darf es kein Ergebnis geben");
+        assert!(
+            heimat().is_err(),
+            "ohne HOME und USERPROFILE darf es kein Ergebnis geben"
+        );
 
         // Der Windows-Fall: nur USERPROFILE gesetzt. Genau hier brach das
         // Programm vorher ab, bevor es überhaupt etwas tun konnte.
@@ -252,10 +256,16 @@ mod tests {
 
         // XDG schlägt alles — das galt vorher schon und muss weiter gelten.
         std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
-        assert_eq!(config_dir().unwrap(), PathBuf::from("/tmp/xdg/ai-brain-companion"));
+        assert_eq!(
+            config_dir().unwrap(),
+            PathBuf::from("/tmp/xdg/ai-brain-companion")
+        );
 
         std::env::remove_var("XDG_CONFIG_HOME");
-        assert_eq!(config_dir().unwrap(), PathBuf::from("/tmp/zuhause/.config/ai-brain-companion"));
+        assert_eq!(
+            config_dir().unwrap(),
+            PathBuf::from("/tmp/zuhause/.config/ai-brain-companion")
+        );
 
         for (k, wert) in sicherung {
             match wert {
