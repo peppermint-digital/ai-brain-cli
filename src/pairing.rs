@@ -96,7 +96,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
         )
     })?;
 
-    let device_name = device_name.unwrap_or_else(|| gethostname::gethostname().to_string_lossy().to_string());
+    let device_name = device_name.unwrap_or_else(default_device_name);
 
     let device = request_device_code(&instance.oauth.device_authorization_endpoint, &client_id, &instance.mcp.scope)?;
 
@@ -259,6 +259,26 @@ fn provision(endpoint: &str, access_token: &str, device_name: &str) -> Result<Pr
         .map_err(|e| format!("Gerätezugang konnte nicht angelegt werden: {}", describe(e)))?
         .into_json()
         .map_err(|e| format!("Antwort der Provisionierung ist unlesbar: {e}"))
+}
+
+/// Standard-Gerätename: `konto@rechner`.
+///
+/// Der blanke Hostname reicht nicht. Zwei Konten auf derselben Maschine
+/// erzeugen sonst zwei Einträge mit identischem Namen — und weil dieser Name
+/// in der Zeitstatistik als `started_by` erscheint, wäre die Auswertung pro
+/// Gerät damit wertlos. Genau das ist beim ersten Feldtest passiert.
+fn default_device_name() -> String {
+    let host = gethostname::gethostname().to_string_lossy().to_string();
+
+    let user = std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_default();
+
+    if user.is_empty() {
+        host
+    } else {
+        format!("{user}@{host}")
+    }
 }
 
 fn platform_label() -> String {
