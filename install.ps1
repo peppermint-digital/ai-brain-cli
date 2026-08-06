@@ -1,77 +1,60 @@
 # AI Brain Companion — Installation für Windows
 #
+#   $env:AI_BRAIN_INSTANZ = 'https://brain.example.com'
 #   irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.ps1 | iex
 #
-# Holt das gebaute Programm aus dem letzten Release, legt es nach
-# %LOCALAPPDATA%\Programs\ai-brain-companion und trägt den Ordner in den PATH
-# des Benutzers ein.
+# Dieses Skript installiert nichts selbst. Es holt das Installationsskript
+# deiner AI-Brain-Instanz und führt es aus.
 #
-# Kein Rust nötig — im Gegensatz zur Unix-Variante, die aus dem Quelltext baut,
-# solange es noch keine Releases gibt.
+# Warum der Umweg: Ohne AI Brain ist der Companion nutzlos, und die Instanz
+# kennt ihre eigene Adresse — sie kann sie deshalb in ihr Skript schreiben,
+# und `connect` kommt danach ohne Argument aus. Ein Skript aus einem
+# Repository weiß nicht, mit welcher Instanz du dich verbinden willst.
+#
+# Die frühere Fassung holte aus dem GitHub-Release. Da es keins gibt, lief sie
+# jedes Mal ins Leere — nach außen sah das aus wie ein kaputtes Programm,
+# dabei war es nur eine leere Bezugsquelle.
 
 $ErrorActionPreference = 'Stop'
 
-$Repo      = 'peppermint-digital/ai-brain-companion'
-$ZielOrdner = Join-Path $env:LOCALAPPDATA 'Programs\ai-brain-companion'
-$ZielDatei = Join-Path $ZielOrdner 'ai-brain-companion.exe'
+# Windows PowerShell 5.1 verhandelt je nach Systemstand noch TLS 1.0.
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-Write-Host 'AI Brain Companion — Installation'
-Write-Host ''
+$Instanz = $env:AI_BRAIN_INSTANZ
 
-# ------------------------------------------------------------------ holen ----
+if (-not $Instanz) {
+    Write-Host 'Adresse deiner AI-Brain-Instanz (z.B. https://brain.example.com):'
+    $Instanz = Read-Host '  Adresse'
+}
 
-Write-Host 'Suche das neueste Release …'
+$Instanz = $Instanz.Trim().TrimEnd('/')
+
+if (-not $Instanz) {
+    Write-Host 'Ohne Adresse geht es nicht.'
+    exit 1
+}
+
+# Fehlt das Schema, waere die zusammengesetzte URL ungueltig — ein Vertipper,
+# der sonst als unverstaendlicher Verbindungsfehler herauskaeme.
+if ($Instanz -notmatch '^https?://') {
+    $Instanz = "https://$Instanz"
+}
+
+Write-Host "Hole das Installationsskript von $Instanz …"
 
 try {
-    $release = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases/latest" -Headers @{ 'User-Agent' = 'ai-brain-companion-installer' }
+    $skript = Invoke-RestMethod -Uri "$Instanz/install.ps1"
 } catch {
-    Write-Error @"
-Kein Release gefunden.
-
-Solange es keins gibt, baust du aus dem Quelltext — dafuer brauchst du Rust
-(https://rustup.rs) und Git:
-
-  git clone https://github.com/$Repo.git
-  cd ai-brain-companion
-  cargo build --release
-"@
+    Write-Host ''
+    Write-Host "$Instanz liefert kein Installationsskript."
+    Write-Host $_.Exception.Message
+    Write-Host ''
+    Write-Host 'Pruefe die Adresse. Laeuft dort eine aeltere AI-Brain-Fassung,'
+    Write-Host 'gibt es die Auslieferung noch nicht — dann baust du aus dem'
+    Write-Host 'Quelltext (Rust von https://rustup.rs vorausgesetzt):'
+    Write-Host ''
+    Write-Host '  cargo install --git https://github.com/peppermint-digital/ai-brain-companion'
     exit 1
 }
 
-$asset = $release.assets | Where-Object { $_.name -like '*windows*' -and $_.name -like '*.exe' } | Select-Object -First 1
-
-if (-not $asset) {
-    Write-Error "Das Release $($release.tag_name) enthaelt kein Windows-Programm."
-    exit 1
-}
-
-Write-Host "Lade $($asset.name) aus $($release.tag_name) …"
-
-New-Item -ItemType Directory -Force -Path $ZielOrdner | Out-Null
-Invoke-WebRequest -Uri $asset.browser_download_url -OutFile $ZielDatei
-
-# Windows markiert heruntergeladene Dateien; ohne das Entfernen fragt der
-# SmartScreen beim ersten Start nach.
-Unblock-File -Path $ZielDatei -ErrorAction SilentlyContinue
-
-# ------------------------------------------------------------------- PATH ----
-
-$benutzerPfad = [Environment]::GetEnvironmentVariable('Path', 'User')
-
-if ($benutzerPfad -split ';' -contains $ZielOrdner) {
-    Write-Host "PATH enthaelt $ZielOrdner bereits."
-} else {
-    # Nur den Benutzer-PATH anfassen, nie den des Systems — der gilt fuer alle
-    # Konten und braucht Administratorrechte.
-    [Environment]::SetEnvironmentVariable('Path', "$benutzerPfad;$ZielOrdner", 'User')
-    Write-Host "PATH ergaenzt: $ZielOrdner"
-    Write-Host 'Oeffne ein neues Terminal, damit das greift.'
-}
-
-Write-Host ''
-Write-Host "Installiert: $ZielDatei"
-Write-Host ''
-Write-Host 'Dann:'
-Write-Host ''
-Write-Host '  ai-brain-companion connect deine-brain-domain.de'
-Write-Host ''
+Invoke-Expression $skript

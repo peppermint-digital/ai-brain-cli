@@ -131,23 +131,26 @@ Ab dann genügt auf jedem weiteren Mac der Einzeiler von der Instanz.
 
 ### Windows
 
-> ⚠️ `install.ps1` holt aus einem GitHub-Release. Solange es keins gibt, läuft
-> das Skript ins Leere — hol die Datei so lange direkt von deiner Instanz.
-
 ```powershell
-$ordner = "$env:LOCALAPPDATA\Programs\ai-brain-companion"
-New-Item -ItemType Directory -Force -Path $ordner | Out-Null
-Invoke-WebRequest -Uri 'https://deine-brain-domain.de/install/x86_64-pc-windows-gnu.exe' `
-                  -OutFile "$ordner\ai-brain-companion.exe"
-Unblock-File -Path "$ordner\ai-brain-companion.exe"
-[Environment]::SetEnvironmentVariable('Path',
-  [Environment]::GetEnvironmentVariable('Path','User') + ";$ordner", 'User')
+irm https://deine-brain-domain.de/install.ps1 | iex
 ```
 
-`Unblock-File` entfernt die Herkunftsmarkierung, sonst fragt der SmartScreen
-beim ersten Start nach. Nur der PATH des **Benutzers** wird angefasst — der des
-Systems gilt für alle Konten und bräuchte Administratorrechte. Danach ein neues
-Terminal öffnen.
+Wie unter Linux liefert die Instanz das Skript selbst aus, mit ihrer Adresse
+darin. Es holt die `.exe`, **prüft die Prüfsumme aus `/install.json`**, nimmt die
+Herkunftsmarkierung weg (sonst fragt der SmartScreen beim ersten Start nach),
+merkt sich die Adresse unter `%APPDATA%\ai-brain-companion\instanz` und ergänzt
+den PATH — den des **Benutzers**, nicht den des Systems, der bräuchte
+Administratorrechte.
+
+Danach ein neues Terminal öffnen, dann genügt `ai-brain-companion connect` ohne
+Argument.
+
+Wenn du die Adresse nicht zur Hand hast, geht auch der Weg über dieses
+Repository — das Skript fragt dann danach und holt den Rest von dort:
+
+```powershell
+irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.ps1 | iex
+```
 
 Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
 
@@ -165,7 +168,7 @@ install -m 755 target/release/ai-brain-companion ~/.local/bin/
 | Plattform | Stand |
 |---|---|
 | Linux x86-64 | Ende zu Ende erprobt, fertiges Programm auf der Instanz |
-| Windows x86-64 | gebaut (GNU-Ziel, im Container), **auf echtem Windows noch nicht gelaufen** |
+| Windows x86-64 | gebaut (GNU-Ziel, im Container); Installer gegen die echte Instanz durchgespielt, aber **auf echtem Windows noch nicht gelaufen** |
 | macOS | wird auf dem Mac selbst gebaut, **noch nicht im Feld erprobt** |
 
 Die Pfadauflösung unterscheidet sich zwischen den Systemen: `HOME` gibt es unter
@@ -176,7 +179,7 @@ durch einen Test abgedeckt — aber ein Test ist kein echtes Windows.
 **Signaturen brauchst du dafür nicht.** Ein Programm, das per `curl` im Terminal
 ankommt, bekommt unter macOS kein Quarantäne-Merkmal — Gatekeeper greift bei
 `.dmg`, `.pkg` und allem, was im Finder doppelgeklickt wird. Unter Windows
-nimmt `Unblock-File` aus dem Befehl oben die Markierung weg.
+nimmt das Installationsskript die Markierung mit `Unblock-File` weg.
 
 ## Verbinden
 
