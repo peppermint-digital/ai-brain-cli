@@ -17,13 +17,32 @@ pub struct Connection {
     pub owner: String,
 }
 
-pub fn config_dir() -> Result<PathBuf, String> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
+/// Das Heimatverzeichnis des Benutzers.
+///
+/// Windows setzt `HOME` nicht — dort heißt es `USERPROFILE`. Ohne diesen Zweig
+/// bricht das Programm auf Windows vor der ersten Aufgabe ab, mit einer Meldung
+/// über eine Variable, die dort niemand kennt.
+pub fn heimat() -> Result<PathBuf, String> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))
-        .ok_or_else(|| "Weder XDG_CONFIG_HOME noch HOME gesetzt.".to_string())?;
+        .ok_or_else(|| "Weder HOME noch USERPROFILE ist gesetzt.".to_string())
+}
 
-    Ok(base.join("ai-brain-companion"))
+pub fn config_dir() -> Result<PathBuf, String> {
+    if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
+        return Ok(PathBuf::from(xdg).join("ai-brain-companion"));
+    }
+
+    // Unter Windows gehört so etwas nach %APPDATA%, nicht in ein verstecktes
+    // Verzeichnis im Heimatordner. XDG gibt es dort nicht.
+    if cfg!(windows) {
+        if let Some(appdata) = std::env::var_os("APPDATA") {
+            return Ok(PathBuf::from(appdata).join("ai-brain-companion"));
+        }
+    }
+
+    Ok(heimat()?.join(".config").join("ai-brain-companion"))
 }
 
 pub fn config_path() -> Result<PathBuf, String> {
@@ -97,9 +116,7 @@ pub fn disconnect() -> Result<(), String> {
 }
 
 fn claude_config_path() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or_else(|| "HOME ist nicht gesetzt.".to_string())?;
-
-    Ok(PathBuf::from(home).join(".claude.json"))
+    Ok(heimat()?.join(".claude.json"))
 }
 
 /// Trägt den Companion als MCP-Server in Claude Code ein.
@@ -200,4 +217,51 @@ fn which(name: &str) -> Option<PathBuf> {
     std::env::split_paths(&pfad)
         .map(|verzeichnis| verzeichnis.join(name))
         .find(|kandidat| kandidat.is_file())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Bewusst EIN Test statt mehrerer: Umgebungsvariablen gehören dem ganzen
+    /// Prozess, und Rust lässt Tests nebenläufig laufen. Getrennte Tests würden
+    /// sich gegenseitig die Variablen unter den Füßen wegziehen und je nach
+    /// Laune bestehen oder scheitern.
+    #[test]
+    fn pfade_finden_auch_ohne_home() {
+        let sicherung: Vec<(&str, Option<std::ffi::OsString>)> = ["HOME", "USERPROFILE", "XDG_CONFIG_HOME", "APPDATA"]
+            .iter()
+            .map(|k| (*k, std::env::var_os(k)))
+            .collect();
+
+        for (k, _) in &sicherung {
+            std::env::remove_var(k);
+        }
+
+        // Ohne jede Angabe darf nicht geraten werden.
+        assert!(heimat().is_err(), "ohne HOME und USERPROFILE darf es kein Ergebnis geben");
+
+        // Der Windows-Fall: nur USERPROFILE gesetzt. Genau hier brach das
+        // Programm vorher ab, bevor es überhaupt etwas tun konnte.
+        std::env::set_var("USERPROFILE", "/tmp/nutzer");
+        assert_eq!(heimat().unwrap(), PathBuf::from("/tmp/nutzer"));
+
+        // HOME hat Vorrang, damit sich unter Unix nichts ändert.
+        std::env::set_var("HOME", "/tmp/zuhause");
+        assert_eq!(heimat().unwrap(), PathBuf::from("/tmp/zuhause"));
+
+        // XDG schlägt alles — das galt vorher schon und muss weiter gelten.
+        std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
+        assert_eq!(config_dir().unwrap(), PathBuf::from("/tmp/xdg/ai-brain-companion"));
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        assert_eq!(config_dir().unwrap(), PathBuf::from("/tmp/zuhause/.config/ai-brain-companion"));
+
+        for (k, wert) in sicherung {
+            match wert {
+                Some(v) => std::env::set_var(k, v),
+                None => std::env::remove_var(k),
+            }
+        }
+    }
 }

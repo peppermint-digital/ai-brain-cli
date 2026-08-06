@@ -650,9 +650,9 @@ fn sammle(wurzel: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>)>) -> Result
 }
 
 fn claude_dir() -> Result<PathBuf, String> {
-    let home = std::env::var_os("HOME").ok_or_else(|| "HOME ist nicht gesetzt.".to_string())?;
-
-    Ok(PathBuf::from(home).join(".claude"))
+    // Claude Code legt sein `.claude` auch unter Windows in den Heimatordner —
+    // nicht nach %APPDATA%. Deshalb hier `heimat()` und nicht `config_dir()`.
+    Ok(crate::config::heimat()?.join(".claude"))
 }
 
 /// Wo überschriebene lokale Fassungen landen.

@@ -57,12 +57,34 @@ Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`
 > Rechner. Ohne Internetzugang: `companion:fetch --von=/pfad/zum/ordner`. Liegt
 > für eine Plattform nichts bereit, sagt das Skript das und verweist auf den
 > Quelltext, statt eine kaputte Datei zu installieren.
+>
+> **Bauen kannst du selbst — GitHub Actions braucht es dafür nicht.** Linux
+> direkt mit `cargo build --release`, Windows in einem Container:
+>
+> ```bash
+> docker run --rm -v "$PWD":/src:ro -v /tmp/aus:/out -w /work rust:1-bookworm sh -c '
+>   apt-get update -qq && apt-get install -y -qq gcc-mingw-w64-x86-64
+>   rustup target add x86_64-pc-windows-gnu
+>   cp -r /src/. /work/ && rm -rf /work/target
+>   cargo build --release --target x86_64-pc-windows-gnu
+>   cp target/x86_64-pc-windows-gnu/release/ai-brain-companion.exe /out/'
+> ```
+>
+> Dauert etwa 20 Sekunden. `mingw-w64` und Rust sind frei — hier steht keine
+> Lizenz im Weg. **Für macOS geht das nicht:** Dafür braucht es Apples SDK, und
+> dessen Lizenz erlaubt die Nutzung nur auf Apple-Hardware. Das lässt sich nicht
+> wegcontainern, sondern nur auf einem Mac erledigen (siehe unten) — dessen
+> Ergebnis du dann mit `companion:fetch --von=…` auf die Instanz legst, damit
+> jeder weitere Mac es fertig bekommt.
 
 ### Von GitHub
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.sh | sh
 ```
+
+> ⚠️ Aktuell existiert **kein Release**. Das Skript baut deshalb aus dem
+> Quelltext (siehe unten) — schneller bist du mit dem Weg über deine Instanz.
 
 Holt das gebaute Programm aus dem letzten Release, legt es nach `~/.local/bin`
 und trägt das Verzeichnis in `~/.zshrc` und `~/.bashrc` ein, falls es dort noch
@@ -76,15 +98,56 @@ Gibt es kein passendes Release, **baut das Skript aus dem Quelltext** — dann
 braucht es Rust (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`)
 und etwa eine halbe Minute.
 
-### Windows
+### macOS
 
-```powershell
-irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.ps1 | iex
+Solange auf der Instanz kein fertiges Programm für macOS liegt, baut der Mac es
+sich selbst — zwei Befehle, ein bis zwei Minuten Rechenzeit:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+cargo install --git https://github.com/peppermint-digital/ai-brain-companion
 ```
 
-Legt das Programm nach `%LOCALAPPDATA%\Programs\ai-brain-companion` und
-ergänzt den PATH deines Benutzers — nicht den des Systems, das bräuchte
-Administratorrechte. Danach ein neues Terminal öffnen.
+Danach liegt es in `~/.cargo/bin` und du verbindest wie überall:
+
+```bash
+ai-brain-companion connect brain.example.com
+```
+
+Das ist kein Notbehelf, sondern für einen einzelnen Mac der kürzere Weg — er
+kommt ohne Release, ohne Token und ohne fremde Baumaschine aus.
+
+Wer mehrere Macs anzubinden hat, baut einmal auf einem davon und legt das
+Ergebnis auf die Instanz:
+
+```bash
+# auf dem Mac
+cargo build --release
+# Datei als ai-brain-companion-aarch64-apple-darwin auf die Instanz bringen,
+# dort:  php artisan companion:fetch --von=/pfad/zum/ordner
+```
+
+Ab dann genügt auf jedem weiteren Mac der Einzeiler von der Instanz.
+
+### Windows
+
+> ⚠️ `install.ps1` holt aus einem GitHub-Release. Solange es keins gibt, läuft
+> das Skript ins Leere — hol die Datei so lange direkt von deiner Instanz.
+
+```powershell
+$ordner = "$env:LOCALAPPDATA\Programs\ai-brain-companion"
+New-Item -ItemType Directory -Force -Path $ordner | Out-Null
+Invoke-WebRequest -Uri 'https://deine-brain-domain.de/install/x86_64-pc-windows-gnu.exe' `
+                  -OutFile "$ordner\ai-brain-companion.exe"
+Unblock-File -Path "$ordner\ai-brain-companion.exe"
+[Environment]::SetEnvironmentVariable('Path',
+  [Environment]::GetEnvironmentVariable('Path','User') + ";$ordner", 'User')
+```
+
+`Unblock-File` entfernt die Herkunftsmarkierung, sonst fragt der SmartScreen
+beim ersten Start nach. Nur der PATH des **Benutzers** wird angefasst — der des
+Systems gilt für alle Konten und bräuchte Administratorrechte. Danach ein neues
+Terminal öffnen.
 
 Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
 
@@ -99,13 +162,21 @@ install -m 755 target/release/ai-brain-companion ~/.local/bin/
 
 ### Plattformen
 
-Linux ist Ende zu Ende getestet. macOS und Windows werden gebaut und
-veröffentlicht, sind aber noch nicht im Feld erprobt.
+| Plattform | Stand |
+|---|---|
+| Linux x86-64 | Ende zu Ende erprobt, fertiges Programm auf der Instanz |
+| Windows x86-64 | gebaut (GNU-Ziel, im Container), **auf echtem Windows noch nicht gelaufen** |
+| macOS | wird auf dem Mac selbst gebaut, **noch nicht im Feld erprobt** |
+
+Die Pfadauflösung unterscheidet sich zwischen den Systemen: `HOME` gibt es unter
+Windows nicht, dort heißt es `USERPROFILE`, und die Verbindungsdaten gehören
+nach `%APPDATA%` statt in einen versteckten Ordner. Das ist berücksichtigt und
+durch einen Test abgedeckt — aber ein Test ist kein echtes Windows.
 
 **Signaturen brauchst du dafür nicht.** Ein Programm, das per `curl` im Terminal
 ankommt, bekommt unter macOS kein Quarantäne-Merkmal — Gatekeeper greift bei
 `.dmg`, `.pkg` und allem, was im Finder doppelgeklickt wird. Unter Windows
-entfernt das Installationsskript die Herkunftsmarkierung.
+nimmt `Unblock-File` aus dem Befehl oben die Markierung weg.
 
 ## Verbinden
 
