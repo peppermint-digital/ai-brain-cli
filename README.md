@@ -35,10 +35,28 @@ steht der Gerätename, zugerechnet wird die Arbeit dir.
 
 ## Installieren
 
-Aktuell wird aus dem Quelltext gebaut. Vorgefertigte Binaries und der
-`curl`-Einzeiler kommen mit dem ersten Release.
+```bash
+curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.sh | sh
+```
 
-Voraussetzung ist eine Rust-Installation (`rustup`).
+Das Skript baut aus dem Quelltext, legt das Programm nach `~/.local/bin` und
+trägt dieses Verzeichnis in `~/.zshrc` und `~/.bashrc` ein, falls es dort noch
+fehlt. Mehrfaches Ausführen ändert nichts doppelt; einen vorhandenen eigenen
+Eintrag lässt es in Ruhe. `~/.bash_profile` und `~/.profile` werden nur
+angefasst, wenn sie schon existieren — neue Anmeldedateien legt es dir nicht an.
+
+Danach eine neue Shell öffnen (oder `. ~/.zshrc`).
+
+**Voraussetzung:** Rust, weil aktuell aus dem Quelltext gebaut wird. Fehlt es,
+sagt das Skript es dir:
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Der erste Bau dauert etwa eine halbe Minute.
+
+### Von Hand
 
 ```bash
 git clone https://github.com/peppermint-digital/ai-brain-companion.git
@@ -47,16 +65,14 @@ cargo build --release
 install -m 755 target/release/ai-brain-companion ~/.local/bin/
 ```
 
-Liegt `~/.local/bin` nicht in deinem `PATH`, ergänze es in `~/.bashrc` oder
-`~/.zshrc`:
+### Plattformen
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
+Linux läuft und ist Ende zu Ende getestet. macOS ist der nächste Schritt,
+Windows danach.
 
-**Plattformen:** Linux läuft. macOS ist der nächste Schritt. Windows reichen wir
-nach. Für macOS und Windows braucht es signierte Binaries, sonst blocken
-Gatekeeper und SmartScreen — das hängt an CI und Zertifikaten, nicht am Code.
+Für beide braucht es signierte Binaries — sonst blocken Gatekeeper und
+SmartScreen die Datei. Das hängt an CI, einem Apple-Developer-Konto und einem
+Windows-Zertifikat, nicht am Code.
 
 ## Verbinden
 
@@ -65,11 +81,11 @@ ai-brain-companion connect brain.example.com
 ```
 
 Der Companion zeigt einen Code und eine Adresse. Öffne sie, melde dich an,
-bestätige. Danach steht:
+bestätige. Der Browser meldet „Gerät verbunden", das Terminal zeigt:
 
 ```
 Fertig.
-  Gerät          : mein-laptop (linux x86_64)
+  Gerät          : bastian@mein-laptop (linux x86_64)
   Zugerechnet an : Bastian
   Hinterlegt in  : ~/.config/ai-brain-companion/connection.json
   Claude Code    : Eintrag „ai-brain" in ~/.claude.json
@@ -81,8 +97,23 @@ Claude Code neu starten, dann stehen die Werkzeuge bereit.
 
 | Option | Wirkung |
 |---|---|
-| `--name <Name>` | Abweichender Gerätename (Standard: Hostname) |
+| `--name <Name>` | Abweichender Gerätename |
 | `--no-claude-config` | Claude-Code-Konfiguration nicht anfassen |
+
+## Gerätenamen
+
+Der Standardname ist `konto@rechner` plus Plattform, also etwa
+`bastian@omarchy (linux x86_64)`.
+
+Das Konto steht bewusst mit drin: Zwei Benutzerkonten auf derselben Maschine
+sind aus Sicht von AI Brain zwei Geräte, weil die Verbindung pro Konto in
+`~/.config` liegt. Ohne den Kontonamen entstünden zwei Einträge mit identischem
+Namen — und weil dieser Name in der Zeiterfassung als Gerät erscheint, wäre die
+Auswertung pro Rechner damit wertlos. Genau das ist beim ersten Feldtest
+passiert.
+
+Nachträglich umbenennen kannst du jedes Gerät unter „Meine Geräte" über das
+Stift-Symbol. Neu koppeln ist dafür nicht nötig.
 
 ## Weitere Befehle
 
@@ -121,6 +152,20 @@ php artisan mcp:companion-client
 ```
 
 Fehlt er, sagt der Companion genau das — statt in einen OAuth-Fehler zu laufen.
+
+## Wenn etwas klemmt
+
+| Meldung | Bedeutung |
+|---|---|
+| `command not found` | `~/.local/bin` fehlt im `PATH`. Neue Shell öffnen oder `. ~/.zshrc` |
+| `… kennt noch keinen Companion-Zugang` | Auf der Instanz fehlt `php artisan mcp:companion-client` |
+| `Der Code ist abgelaufen` | Zu lange gewartet. `connect` einfach neu starten |
+| `Die Kopplung wurde im Browser abgelehnt` | Im Bestätigungsdialog auf „Ablehnen" geklickt |
+| `Der Gerätezugang wurde abgelehnt` | Gerät wurde unter „Meine Geräte" entzogen. Neu koppeln |
+
+Läuft die Instanz mit Octane, werden Änderungen an ihrem PHP-Code erst nach
+einem Neustart des Dienstes wirksam — das betrifft dich nur, wenn du selbst an
+AI Brain entwickelst.
 
 ## Sicherheit
 
