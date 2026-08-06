@@ -93,6 +93,11 @@ Fertig.
 
 Claude Code neu starten, dann stehen die Werkzeuge bereit.
 
+**Codex wird mitbedient**, falls es installiert ist. Der Companion nutzt dafür
+`codex mcp add` — Codex kennt sein eigenes TOML-Format am besten, und die
+`~/.codex/config.toml` enthält meist schon andere Abschnitte, die kein
+selbstgebauter Schreiber anfassen sollte.
+
 ### Optionen
 
 | Option | Wirkung |
@@ -218,7 +223,7 @@ ließe alles als „geändert" erscheinen.
 
 ```bash
 ai-brain-companion status            # Zeigt die aktuelle Verbindung
-ai-brain-companion configure-claude  # Trägt den MCP-Server nachträglich ein
+ai-brain-companion configure         # Trägt den MCP-Server nachträglich ein (Claude + Codex)
 ai-brain-companion disconnect        # Entfernt die lokale Verbindung
 ai-brain-companion mcp               # Läuft als MCP-Server (startet Claude Code selbst)
 ```

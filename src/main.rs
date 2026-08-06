@@ -35,7 +35,7 @@ Aufrufe:
   ai-brain-companion sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-companion publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-companion status             Zeigt die aktuelle Verbindung
-  ai-brain-companion configure-claude   Traegt den MCP-Server in Claude Code ein
+  ai-brain-companion configure          Traegt den MCP-Server in Claude Code und Codex ein
   ai-brain-companion disconnect         Entfernt die lokale Verbindung
 
 Beispiel:
@@ -55,24 +55,34 @@ Optionen für `connect`:
   --no-claude-config    Claude-Code-Konfiguration nicht anfassen
 ";
 
-/// Trägt den MCP-Server nachträglich in Claude Code ein.
+/// Trägt den MCP-Server nachträglich in die vorhandenen Werkzeuge ein.
 ///
 /// Gebraucht von allen, die mit `--no-claude-config` gekoppelt haben — und
 /// beim Umstellen eines Rechners, der vorher auf einem anderen Weg an AI Brain
 /// hing. Ohne diesen Befehl bliebe als Ausweg nur, ein zweites Mal zu koppeln,
 /// und das legt einen überflüssigen zweiten Gerätezugang an.
-fn configure_claude() -> Result<(), String> {
+///
+/// `configure-claude` bleibt als Zweitname bestehen — der Befehl stand so in
+/// der README, und wer ihn sich notiert hat, soll nicht ins Leere laufen.
+fn configure_tools() -> Result<(), String> {
     // Erst prüfen, ob überhaupt eine Verbindung existiert: sonst schreiben wir
     // einen MCP-Eintrag, der beim Start sofort scheitert.
     let connection = config::load()?;
 
-    let path = config::write_claude_config()?;
-
-    println!("Eingetragen in {}", path.display());
-    println!("  Instanz : {}", connection.base_url);
-    println!("  Gerät   : {}", connection.device_name);
+    println!("Instanz : {}", connection.base_url);
+    println!("Gerät   : {}", connection.device_name);
     println!();
-    println!("Starte Claude Code neu, damit der Eintrag greift.");
+
+    let path = config::write_claude_config()?;
+    println!("Claude Code : {}", path.display());
+
+    match config::write_codex_config()? {
+        Some(_) => println!("Codex       : Eintrag „ai-brain“ angelegt"),
+        None => println!("Codex       : nicht installiert, übersprungen"),
+    }
+
+    println!();
+    println!("Starte die Werkzeuge neu, damit die Einträge greifen.");
 
     Ok(())
 }
@@ -86,7 +96,7 @@ fn main() -> ExitCode {
         Some("sync") => sync::run(&args[1..]),
         Some("publish") => sync::publish(&args[1..]),
         Some("status") => config::print_status(),
-        Some("configure-claude") => configure_claude(),
+        Some("configure") | Some("configure-claude") => configure_tools(),
         Some("disconnect") => config::disconnect(),
         Some("--help") | Some("-h") | Some("help") | None => {
             print!("{USAGE}");

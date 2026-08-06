@@ -152,8 +152,18 @@ pub fn connect(args: &[String]) -> Result<(), String> {
         match config::write_claude_config() {
             Ok(path) => {
                 println!("  Claude Code    : Eintrag „ai-brain“ in {}", path.display());
+
+                // Codex bringt `codex mcp add` mit und kennt sein TOML-Format
+                // selbst — besser, als die config.toml von Hand zu schreiben.
+                // Fehlt Codex, ist das kein Fehler, sondern der Normalfall.
+                match config::write_codex_config() {
+                    Ok(Some(_)) => println!("  Codex          : Eintrag „ai-brain“ angelegt"),
+                    Ok(None) => {}
+                    Err(err) => eprintln!("  Codex          : nicht eingetragen ({err})"),
+                }
+
                 println!();
-                println!("Starte Claude Code neu, dann stehen die Werkzeuge bereit.");
+                println!("Starte deine Werkzeuge neu, dann stehen die Befehle bereit.");
             }
             Err(err) => {
                 // Kein Abbruch: die Kopplung ist gelungen und gespeichert. Nur

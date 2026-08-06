@@ -150,3 +150,54 @@ pub fn write_claude_config() -> Result<PathBuf, String> {
 
     Ok(path)
 }
+
+// ----------------------------------------------------------------- codex ----
+
+/// Traegt den MCP-Server in Codex ein — ueber dessen eigenes Werkzeug.
+///
+/// Codex bringt `codex mcp add` mit und kennt sein TOML-Format selbst. Die
+/// `~/.codex/config.toml` von Hand zu schreiben waere die schlechtere Loesung:
+/// Sie enthaelt bereits `[features]` und `[projects."…"]`-Abschnitte, und ein
+/// selbstgebauter Schreiber muesste die alle heil lassen.
+///
+/// Fehlt Codex auf dem Rechner, ist das kein Fehler — dann gibt es nichts
+/// einzutragen.
+pub fn write_codex_config() -> Result<Option<String>, String> {
+    if which("codex").is_none() {
+        return Ok(None);
+    }
+
+    let executable = std::env::current_exe()
+        .map_err(|e| format!("Eigener Programmpfad nicht ermittelbar: {e}"))?;
+
+    let pfad = executable.to_string_lossy().to_string();
+
+    // Ein vorhandener Eintrag laesst sich nicht ueberschreiben — erst weg,
+    // dann neu. Schlaegt das Entfernen fehl, war keiner da; das ist der
+    // Normalfall und kein Grund zur Sorge.
+    let _ = std::process::Command::new("codex")
+        .args(["mcp", "remove", "ai-brain"])
+        .output();
+
+    let ergebnis = std::process::Command::new("codex")
+        .args(["mcp", "add", "ai-brain", "--", &pfad, "mcp"])
+        .output()
+        .map_err(|e| format!("codex liess sich nicht aufrufen: {e}"))?;
+
+    if !ergebnis.status.success() {
+        let fehler = String::from_utf8_lossy(&ergebnis.stderr);
+
+        return Err(format!("codex mcp add schlug fehl: {}", fehler.trim()));
+    }
+
+    Ok(Some("codex".to_string()))
+}
+
+/// Liegt dieses Programm im PATH?
+fn which(name: &str) -> Option<PathBuf> {
+    let pfad = std::env::var_os("PATH")?;
+
+    std::env::split_paths(&pfad)
+        .map(|verzeichnis| verzeichnis.join(name))
+        .find(|kandidat| kandidat.is_file())
+}
