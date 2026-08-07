@@ -19,7 +19,7 @@
 
 use crate::config::{self, Connection};
 use serde::Deserialize;
-use std::io::{BufRead, Write};
+use std::io::{BufRead, Read, Write};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Deserialize)]
@@ -242,8 +242,21 @@ fn forward(connection: &Connection, token: &str, payload: &str) -> Result<Option
             other => format!("Instanz nicht erreichbar: {other}"),
         })?;
 
-    let body = response
-        .into_string()
+    // NICHT `into_string()`: Das deckelt bei 10 MB und bricht mit „response too
+    // big" ab. Ein Eintrag mit Binäranhang liegt darüber — `kami` bringt eine
+    // 9 MB grosse ZIP mit, die als Base64 auf rund 12 MB wächst. Der Deckel
+    // träfe damit ausgerechnet den Fall, für den die Base64-Kodierung überhaupt
+    // eingeführt wurde.
+    //
+    // Die Obergrenze bleibt, aber grosszügig: ohne jede Grenze könnte eine
+    // fehlgeleitete Antwort den Arbeitsspeicher füllen.
+    const OBERGRENZE: u64 = 256 * 1024 * 1024;
+
+    let mut body = String::new();
+    response
+        .into_reader()
+        .take(OBERGRENZE)
+        .read_to_string(&mut body)
         .map_err(|e| format!("Antwort der Instanz ist unlesbar: {e}"))?;
 
     let trimmed = body.trim();
