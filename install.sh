@@ -173,7 +173,23 @@ setup_path
 say ""
 say "Installiert: $INSTALL_DIR/$BIN_NAME"
 say ""
-say "Öffne eine neue Shell (oder:  . ~/.zshrc  bzw.  . ~/.bashrc), dann:"
-say ""
-say "  $BIN_NAME connect deine-brain-domain.de"
-say ""
+
+# Dieses Skript ist auch der Update-Weg. Wer schon verbunden ist, braucht KEIN
+# `connect` — das legte einen zweiten Geraetezugang an: derselbe Rechner zweimal
+# unter „Meine Geraete", der neue mit der Grundausstattung statt der gepflegten
+# Auswahl, und die Zeiterfassung auf zwei Namen verteilt. Der Austausch des
+# Programms laesst die Verbindung unberuehrt.
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/ai-brain-companion/connection.json" ]; then
+    say "Dieser Rechner ist bereits verbunden — kein 'connect' noetig."
+    say ""
+    say "Öffne eine neue Shell (oder:  . ~/.zshrc  bzw.  . ~/.bashrc), dann:"
+    say ""
+    say "  $BIN_NAME status"
+    say "  $BIN_NAME sync --apply"
+    say ""
+else
+    say "Öffne eine neue Shell (oder:  . ~/.zshrc  bzw.  . ~/.bashrc), dann:"
+    say ""
+    say "  $BIN_NAME connect deine-brain-domain.de"
+    say ""
+fi

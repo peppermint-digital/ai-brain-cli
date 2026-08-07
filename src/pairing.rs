@@ -57,6 +57,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
     let mut domain: Option<String> = None;
     let mut device_name: Option<String> = None;
     let mut configure_claude = true;
+    let mut noch_einer = false;
 
     let mut i = 0;
     while i < args.len() {
@@ -69,6 +70,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
                         .clone(),
                 );
             }
+            "--neu" => noch_einer = true,
             "--no-claude-config" => configure_claude = false,
             other if other.starts_with("--") => {
                 return Err(format!("Unbekannte Option: {other}"));
@@ -76,6 +78,46 @@ pub fn connect(args: &[String]) -> Result<(), String> {
             other => domain = Some(other.to_string()),
         }
         i += 1;
+    }
+
+    // Schon verbunden? Dann ist ein zweiter Lauf fast immer ein Versehen.
+    //
+    // Er wuerde naemlich nicht die bestehende Verbindung erneuern, sondern einen
+    // ZWEITEN Geraetezugang anlegen: derselbe Rechner staende zweimal unter
+    // „Meine Geraete", der neue startet mit der Grundausstattung statt der
+    // gepflegten Auswahl, und die Zeiterfassung verteilt sich auf zwei Namen —
+    // `started_by` ist der Geraetename.
+    //
+    // Der haeufigste Weg dorthin: Das Installationsskript riet frueher auch beim
+    // blossen Update zu `connect`. Ein Update braucht das nicht; der Austausch
+    // des Programms laesst die Verbindung unberuehrt.
+    if ! noch_einer {
+        if let Ok(vorhanden) = config::load() {
+            // Einrueckung ausdruecklich im Text: `main` stellt "Fehler: " voran,
+            // und eine Zeilenfortsetzung im Quelltext wuerde die fuehrenden
+            // Leerzeichen schlucken.
+            let z = "\n           ";
+
+            return Err([
+                "Dieser Rechner ist bereits verbunden.".to_string(),
+                format!("{z}Instanz : {}", vorhanden.base_url),
+                format!("{z}Gerät   : {}", vorhanden.device_name),
+                format!("{z}"),
+                format!("{z}Für ein Update genügt es, das Programm zu ersetzen — die Verbindung"),
+                format!("{z}bleibt bestehen. Weiter geht es mit:"),
+                format!("{z}"),
+                format!("{z}  ai-brain-companion status"),
+                format!("{z}  ai-brain-companion sync --apply"),
+                format!("{z}"),
+                format!("{z}Soll wirklich ein ZWEITER Gerätezugang entstehen (etwa für ein"),
+                format!("{z}zweites Konto auf dieser Maschine), dann ausdrücklich:"),
+                format!("{z}"),
+                format!("{z}  ai-brain-companion connect --neu"),
+                format!("{z}"),
+                format!("{z}Bestehende Verbindung ersetzen: erst disconnect, dann connect."),
+            ]
+            .concat());
+        }
     }
 
     // Kam das Programm vom Installationsskript einer Instanz, steht deren

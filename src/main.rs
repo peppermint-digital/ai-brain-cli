@@ -73,6 +73,9 @@ Optionen für `select`:
 Optionen für `connect`:
   --name <Gerätename>   Abweichender Gerätename (Standard: Hostname)
   --no-claude-config    Claude-Code-Konfiguration nicht anfassen
+  --neu                 Auch dann koppeln, wenn dieser Rechner schon verbunden ist.
+                        Legt einen ZWEITEN Gerätezugang an — für ein Update ist das
+                        nicht nötig, da genügt das Ersetzen des Programms.
 ";
 
 /// Trägt den MCP-Server nachträglich in die vorhandenen Werkzeuge ein.
