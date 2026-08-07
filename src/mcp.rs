@@ -156,6 +156,78 @@ fn token(connection: &Connection, cache: &mut Option<TokenCache>) -> Result<Stri
     Ok(token.access_token)
 }
 
+/// Ruft ein Werkzeug der Instanz auf und gibt dessen Nutzlast als JSON zurück.
+///
+/// Der `mcp`-Unterbefehl reicht fremde Anfragen nur durch; hier formt der
+/// Companion selbst eine. Beides läuft über denselben Kanal und dieselbe
+/// Anmeldung — es gibt genau einen Weg zur Instanz, und der ist MCP.
+///
+/// Ein `initialize` ist nicht nötig: Der HTTP-Weg ist zustandslos, jede
+/// Anfrage trägt ihre Anmeldung selbst.
+pub fn call_tool(
+    connection: &Connection,
+    token: &str,
+    name: &str,
+    arguments: serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments },
+    })
+    .to_string();
+
+    let body = forward(connection, token, &payload)?
+        .ok_or_else(|| format!("Die Instanz hat auf {name} nichts geantwortet."))?;
+
+    let antwort: serde_json::Value = serde_json::from_str(&nutzlast(&body))
+        .map_err(|e| format!("Antwort auf {name} ist unlesbar: {e}"))?;
+
+    if let Some(fehler) = antwort.get("error") {
+        let grund = fehler
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("kein Grund genannt");
+
+        return Err(format!("Die Instanz lehnt {name} ab: {grund}"));
+    }
+
+    let text = antwort
+        .pointer("/result/content/0/text")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| format!("Antwort auf {name} hat keinen Inhalt."))?;
+
+    // Ein abgelehnter Aufruf kommt als gewöhnliche Antwort mit `isError` —
+    // der Text ist dann eine Meldung, kein JSON. Ohne diese Abzweigung
+    // scheiterte er als "unlesbares JSON" und die eigentliche Begründung
+    // (etwa: das Gerät gehört jemand anderem) ginge verloren.
+    if antwort.pointer("/result/isError").and_then(|f| f.as_bool()) == Some(true) {
+        return Err(text.to_string());
+    }
+
+    serde_json::from_str(text).map_err(|e| format!("Inhalt von {name} ist kein JSON: {e} — {text}"))
+}
+
+/// Zieht aus der Antwort das JSON heraus.
+///
+/// Die Instanz darf laut Protokoll auch als Ereignisstrom antworten
+/// (`text/event-stream`). Dann steht die Nutzlast hinter `data:`, und der Rest
+/// sind Rahmenzeilen, an denen ein JSON-Parser scheitert.
+fn nutzlast(body: &str) -> String {
+    if !body.lines().any(|z| z.starts_with("data:")) {
+        return body.trim().to_string();
+    }
+
+    body.lines()
+        .filter_map(|z| z.strip_prefix("data:"))
+        .map(str::trim)
+        .filter(|z| !z.is_empty())
+        .last()
+        .unwrap_or("")
+        .to_string()
+}
+
 fn forward(connection: &Connection, token: &str, payload: &str) -> Result<Option<String>, String> {
     let response = ureq::post(&connection.mcp_url)
         .set("Authorization", &format!("Bearer {token}"))

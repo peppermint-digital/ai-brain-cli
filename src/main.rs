@@ -22,6 +22,7 @@ mod config;
 mod discovery;
 mod mcp;
 mod pairing;
+mod select;
 mod sync;
 
 use std::process::ExitCode;
@@ -34,6 +35,7 @@ Aufrufe:
                                         (ohne Angabe: die Instanz, von der dieses
                                         Programm kam)
   ai-brain-companion mcp                Als MCP-Server laufen (startet Claude Code selbst)
+  ai-brain-companion select             Waehlen, welche Eintraege dieser Rechner bekommt
   ai-brain-companion sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-companion publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-companion status             Zeigt die aktuelle Verbindung
@@ -51,6 +53,14 @@ Optionen für `sync`:
   --aufraeumen          Nicht mehr ausgewählte Einträge entfernen — aber nur die,
                         die der Companion selbst geschrieben hat und die seither
                         unverändert sind
+
+Optionen für `select`:
+  --zeigen              Nur anzeigen, nichts fragen und nichts aendern
+  --setzen a,b,c        Ohne Rueckfrage genau diese Eintraege setzen
+  --alles               Ohne Rueckfrage auf alles stellen (auch kuenftige Eintraege)
+  --geraet <Name>       Ein anderes eigenes Geraet einstellen (Standard: dieser Rechner)
+
+  Ohne Terminal wird nie gefragt — dann zeigt `select` nur an.
 
 Optionen für `connect`:
   --name <Gerätename>   Abweichender Gerätename (Standard: Hostname)
@@ -96,6 +106,7 @@ fn main() -> ExitCode {
         Some("connect") => pairing::connect(&args[1..]),
         Some("mcp") => mcp::serve(),
         Some("sync") => sync::run(&args[1..]),
+        Some("select") => select::run(&args[1..]),
         Some("publish") => sync::publish(&args[1..]),
         Some("status") => config::print_status(),
         Some("configure") | Some("configure-claude") => configure_tools(),
