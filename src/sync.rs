@@ -267,7 +267,35 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     (true, true) => Verdict::Unveraendert,
                     (false, true) => Verdict::Aktualisiert,
                     (true, false) => Verdict::LokalGeaendert,
-                    (false, false) => Verdict::Konflikt,
+                    // Laut Stand haben sich beide Seiten bewegt — ein Konflikt
+                    // ist das aber erst, wenn der Inhalt wirklich auseinander
+                    // laeuft. Wurde der Eintrag auf einem anderen Weg
+                    // geschrieben (serverseitig ueber das Install-Werkzeug, von
+                    // Hand, durch ein zweites Werkzeug), ist nur die
+                    // Buchfuehrung des Companions veraltet; die Dateien sind
+                    // laengst dieselben.
+                    //
+                    // Also erst nachsehen, dann urteilen — sonst meldet jeder
+                    // Lauf denselben Konflikt, der keiner ist, und die echten
+                    // gehen darin unter. Der Abruf kostet eine Anfrage, faellt
+                    // aber nur im seltenen Konfliktfall an.
+                    (false, false) => match fetch_item(&connection, &token, &item.kind, &item.slug) {
+                        Ok(detail) => {
+                            if files_match(&target, &detail)? {
+                                uebernehmen.push((key.clone(), detail, target.clone()));
+                                Verdict::Uebernommen
+                            } else {
+                                Verdict::Konflikt
+                            }
+                        }
+                        // Im Zweifel beim strengeren Urteil bleiben: lieber
+                        // einen Konflikt melden, den jemand ansieht, als
+                        // ungeprueft zu uebernehmen.
+                        Err(err) => {
+                            eprintln!("Konnte {}/{} nicht pruefen: {err}", item.kind, item.slug);
+                            Verdict::Konflikt
+                        }
+                    },
                 }
             }
         };
