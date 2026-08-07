@@ -20,6 +20,7 @@
 
 mod config;
 mod discovery;
+mod frage;
 mod mcp;
 mod pairing;
 mod select;
@@ -46,13 +47,20 @@ Beispiel:
   ai-brain-companion connect brain.proxy.peppermint-digital.com
 
 Optionen für `sync`:
-  --apply               Änderungen wirklich schreiben (ohne: nur anzeigen)
+  --apply               Änderungen wirklich schreiben (ohne: erst fragen)
   --only <name>         Nur diesen einen Eintrag
   --force               Auch überschreiben, wo lokal geändert wurde
                         (die lokale Fassung wird gesichert)
   --aufraeumen          Nicht mehr ausgewählte Einträge entfernen — aber nur die,
                         die der Companion selbst geschrieben hat und die seither
                         unverändert sind
+  --ja                  Nicht fragen, sichere Vorgabe nehmen: anwenden ja, aber
+                        nichts überschreiben und nichts entfernen. Dafür bleiben
+                        --force und --aufraeumen nötig.
+
+  Am Terminal fragt `sync` vor dem Anwenden und bei jedem strittigen Eintrag
+  einzeln (behalten / überschreiben / Unterschied ansehen). Ohne Terminal wird
+  NIE gefragt — dann gilt, was an Optionen dasteht.
 
 Optionen für `select`:
   --zeigen              Nur anzeigen, nichts fragen und nichts aendern

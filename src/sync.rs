@@ -31,7 +31,7 @@
 use crate::config::{self, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -164,6 +164,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut apply = false;
     let mut force = false;
     let mut aufraeumen = false;
+    let mut zugestimmt = false;
     let mut only: Option<String> = None;
 
     let mut i = 0;
@@ -172,6 +173,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
             "--apply" => apply = true,
             "--force" => force = true,
             "--aufraeumen" => aufraeumen = true,
+            // Vorab geantwortet: nicht fragen, sondern die sichere Vorgabe
+            // nehmen. Anwenden ja — aber nichts überschreiben und nichts
+            // entfernen; dafür bleiben --force und --aufraeumen nötig.
+            "--ja" | "--headless" => {
+                zugestimmt = true;
+                apply = true;
+            }
             "--only" => {
                 i += 1;
                 only = Some(
@@ -377,6 +385,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     report(&plan);
 
+    // Ein ausdrückliches --apply beantwortet die Frage schon; gefragt wird nur,
+    // wenn jemand da ist, der antworten kann.
+    if !apply && crate::frage::darf_fragen(zugestimmt) {
+        let etwas_zu_tun = plan.iter().any(|(_, v, _)| {
+            matches!(v, Verdict::Neu | Verdict::Aktualisiert | Verdict::Konflikt | Verdict::Fremd)
+        }) || !ueberzaehlig.is_empty();
+
+        if etwas_zu_tun {
+            println!();
+            apply = crate::frage::ja_nein("Anwenden?", false)?;
+        }
+    }
+
     if !apply {
         println!();
         println!("Nichts geschrieben. Zum Anwenden:  ai-brain-companion sync --apply");
@@ -389,16 +410,18 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut entfernt = 0usize;
 
     for (item, verdict, target) in &plan {
-        let schreiben = match verdict {
-            Verdict::Neu | Verdict::Aktualisiert => true,
-            Verdict::Konflikt | Verdict::Fremd => force,
-            _ => false,
-        };
+        let strittig = matches!(verdict, Verdict::Konflikt | Verdict::Fremd);
+        let unstrittig = matches!(verdict, Verdict::Neu | Verdict::Aktualisiert);
 
-        if !schreiben {
-            if matches!(verdict, Verdict::Konflikt | Verdict::Fremd) {
-                uebersprungen += 1;
-            }
+        if !strittig && !unstrittig {
+            continue;
+        }
+
+        // Strittig, kein --force, und niemand da zum Fragen: liegen lassen.
+        // Im Zweifel nichts anfassen — das ist die Vorgabe, die keinen Schaden
+        // anrichtet.
+        if strittig && !force && !crate::frage::darf_fragen(zugestimmt) {
+            uebersprungen += 1;
             continue;
         }
 
@@ -413,6 +436,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 continue;
             }
         };
+
+        // Je Eintrag entscheiden statt pauschal --force: Wer --force setzt, um
+        // einen einzigen Eintrag loszuwerden, ueberschreibt im selben Zug alle
+        // anderen mit.
+        if strittig && !force && !entscheiden(item, verdict, target, &detail)? {
+            uebersprungen += 1;
+            continue;
+        }
 
         // Vor dem Überschreiben die lokale Fassung sichern. Eine Entscheidung,
         // die sich rückgängig machen lässt, ist nie die falsche.
@@ -445,6 +476,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
         geschrieben += 1;
     }
 
+    // Entfernen ist die einzige Handlung, die etwas wegnimmt — dafür wird
+    // ausdrücklich gefragt, und die Vorgabe ist Nein.
+    if !aufraeumen && !ueberzaehlig.is_empty() && crate::frage::darf_fragen(zugestimmt) {
+        println!();
+        aufraeumen = crate::frage::ja_nein(
+            &format!(
+                "{} nicht mehr ausgewaehlte Eintraege entfernen?",
+                ueberzaehlig.len()
+            ),
+            false,
+        )?;
+    }
+
     if aufraeumen {
         for (key, verzeichnis) in &ueberzaehlig {
             fs::remove_dir_all(verzeichnis)
@@ -470,12 +514,161 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     if uebersprungen > 0 {
         println!(
-            "{uebersprungen} übersprungen, weil hier Änderungen liegen. Mit --force überschreiben \
-             (die lokale Fassung wird dabei als .lokal gesichert)."
+            "{uebersprungen} übersprungen, weil hier Änderungen liegen. Am Terminal wird je \
+             Eintrag gefragt; --force überschreibt sie alle. Die hiesige Fassung wird dabei \
+             gesichert."
         );
     }
 
     Ok(())
+}
+
+/// Was mit einem strittigen Eintrag geschehen soll — einzeln gefragt.
+///
+/// Bisher gab es dafür nur `--force`, und das gilt für den ganzen Lauf: Wer
+/// einen einzigen Eintrag loswerden wollte, überschrieb alle anderen mit. Die
+/// Vorgabe ist deshalb „behalten" — die Antwort, die nichts kaputt macht.
+fn entscheiden(
+    item: &ManifestItem,
+    verdict: &Verdict,
+    target: &Path,
+    detail: &ItemDetail,
+) -> Result<bool, String> {
+    let lage = match verdict {
+        Verdict::Konflikt => "hier UND auf der Instanz geaendert",
+        _ => "liegt hier, stammt aber nicht vom Companion",
+    };
+
+    println!();
+    println!("{} {} — {lage}", item.kind, item.slug);
+
+    loop {
+        match crate::frage::auswahl(
+            "Was damit tun?",
+            &[
+                ('b', "behalten — die hiesige Fassung bleibt"),
+                (
+                    'u',
+                    "ueberschreiben — die Fassung der Instanz gilt (hiesige wird gesichert)",
+                ),
+                ('d', "Unterschied ansehen"),
+            ],
+            'b',
+        )? {
+            'b' => return Ok(false),
+            'u' => return Ok(true),
+            _ => unterschied_zeigen(target, detail)?,
+        }
+    }
+}
+
+/// Zeigt, worin sich die hiesige Fassung von der der Instanz unterscheidet.
+///
+/// Bewusst kein vollwertiger Diff: Verglichen wird Datei für Datei, und bei
+/// Textdateien werden abweichende Zeilen nach Zeilennummer gegenübergestellt.
+/// Das beantwortet die Frage, die vor der Entscheidung steht — „ist das meine
+/// Änderung oder etwas Fremdes?" — ohne eine Vergleichsmechanik, deren Ausgabe
+/// niemand nachprüfen kann.
+fn unterschied_zeigen(target: &Path, detail: &ItemDetail) -> Result<(), String> {
+    println!();
+
+    let mut abweichend = 0usize;
+    let mut bekannt: BTreeSet<String> = BTreeSet::new();
+
+    for datei in &detail.files {
+        bekannt.insert(datei.path.clone());
+
+        let hier = target.join(&datei.path);
+        let dort = datei.bytes()?;
+
+        if !hier.exists() {
+            println!("  nur auf der Instanz: {}", datei.path);
+            abweichend += 1;
+            continue;
+        }
+
+        let lokal =
+            fs::read(&hier).map_err(|e| format!("{} nicht lesbar: {e}", hier.display()))?;
+
+        if lokal == dort {
+            continue;
+        }
+
+        abweichend += 1;
+        println!("  verschieden: {}", datei.path);
+
+        // Binärdateien nicht auf den Schirm kippen — Größe sagt hier mehr.
+        match (String::from_utf8(lokal.clone()), String::from_utf8(dort)) {
+            (Ok(a), Ok(b)) => zeilen_gegenueberstellen(&a, &b),
+            _ => println!("      (keine Textdatei, {} Bytes hier)", lokal.len()),
+        }
+    }
+
+    // Was nur hier liegt, ist oft der eigentliche Grund für den Konflikt.
+    let mut hiesige: Vec<(String, Vec<u8>)> = Vec::new();
+    if target.exists() {
+        sammle(target, target, &mut hiesige)?;
+    }
+
+    for (pfad, _) in hiesige {
+        if !bekannt.contains(&pfad) {
+            println!("  nur hier: {pfad}");
+            abweichend += 1;
+        }
+    }
+
+    if abweichend == 0 {
+        println!("  Kein Unterschied in den Dateien.");
+    }
+
+    println!();
+
+    Ok(())
+}
+
+fn zeilen_gegenueberstellen(hier: &str, dort: &str) {
+    let a: Vec<&str> = hier.lines().collect();
+    let b: Vec<&str> = dort.lines().collect();
+
+    let mut gezeigt = 0usize;
+
+    for i in 0..a.len().max(b.len()) {
+        let x = a.get(i).copied().unwrap_or("");
+        let y = b.get(i).copied().unwrap_or("");
+
+        if x == y {
+            continue;
+        }
+
+        if gezeigt == 0 {
+            println!("      abweichende Zeilen  (- hier  /  + Instanz):");
+        }
+
+        println!("      {:>5} - {}", i + 1, kuerzen(x));
+        println!("      {:>5} + {}", i + 1, kuerzen(y));
+
+        gezeigt += 1;
+
+        if gezeigt >= 8 {
+            println!("      … weitere nicht gezeigt");
+            break;
+        }
+    }
+
+    // Wurde oben etwas eingefügt, verschiebt sich alles danach und erscheint
+    // als abweichend. Die Zeilenzahlen machen das erkennbar, statt einen
+    // falschen Eindruck zu hinterlassen.
+    println!("      Zeilen gesamt: hier {}, Instanz {}", a.len(), b.len());
+}
+
+fn kuerzen(zeile: &str) -> String {
+    let z = zeile.trim_end();
+
+    if z.chars().count() <= 96 {
+        return z.to_string();
+    }
+
+    format!("{}…", z.chars().take(96).collect::<String>())
 }
 
 fn report(plan: &[(ManifestItem, Verdict, PathBuf)]) {
