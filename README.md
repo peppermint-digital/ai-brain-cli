@@ -359,6 +359,40 @@ hineinzukopieren hiesse, eine zweite Kopie zu pflegen, die veraltet.
 Claude-Code-Sitzung gestarteter Agent für ein Kind davon und schreibt kein
 eigenes Transkript.
 
+### Eine Unterhaltung weiterführen
+
+```bash
+ai-brain-cli agent --projekt x "Merke dir die Zahl 4711."
+ai-brain-cli logs <kennung>            # zeigt die Sitzungskennung
+ai-brain-cli agent --sitzung <uuid> "Welche Zahl war es?"   # → 4711
+ai-brain-cli agent --fortsetzen "..."  # die letzte hier
+```
+
+Ohne diese Schalter beginnt jeder Lauf von vorn. Das war die grösste Lücke
+gegenüber Hermes, das Unterhaltungen über Monate hält — die Schalter gibt es in
+beiden Werkzeugen, sie wurden nur nicht durchgereicht.
+
+**Die Sitzungskennung kommt von uns, nicht aus der Ausgabe.** `claude` nimmt
+eine vorgegebene (`--session-id <uuid>`); die CLI leitet sie aus der
+Lauf-Kennung ab und schreibt sie ins Register. Der Umweg über
+`--output-format json` hätte das Protokoll von lesbarem Text in JSON verwandelt,
+nur um eine Zeichenkette zu erfahren.
+
+| | claude | codex |
+|---|---|---|
+| frisch | `--session-id <uuid>` (wir vergeben sie) | eigene Kennung, von codex |
+| `--fortsetzen` | `-c` | `exec resume --last` |
+| `--sitzung <id>` | `-r <id>` | `exec resume <id>` |
+
+**Eine Kombination geht nicht, und sie wird abgelehnt statt stillschweigend
+geändert:** `codex exec resume` kennt kein `-s/--sandbox`, also ist
+`--schreibend` beim Fortsetzen mit codex nicht ausdrückbar. Den Schalter
+einfach fallen zu lassen wäre das Schlimmste — der Lauf liefe mit anderen
+Rechten als verlangt, und niemand sähe es.
+
+Im Pane (`--imkr`) geht Fortsetzen nur mit `--modell claude`; für codex heisst
+der interaktive Weg `codex resume` und ist hier nicht verdrahtet.
+
 ### Was in AI Brain davon ankommt
 
 Jeder Lauf meldet Anfang und Ende als Audit-Eintrag: Projekt, Aufgabe, Modell,

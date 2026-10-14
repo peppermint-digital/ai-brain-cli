@@ -118,6 +118,12 @@ pub struct Lauf {
     #[serde(default)]
     pub jemals_gearbeitet: bool,
 
+    /// Kennung der Unterhaltung, mit der dieser Lauf fortgesetzt werden kann
+    /// (`agent --sitzung <id>`). Bei Claude eine vorgegebene UUID, bei codex
+    /// leer — dort vergibt das Werkzeug sie selbst.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sitzung: Option<String>,
+
     pub gestartet: u64,
     pub zuletzt_gesehen: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -224,6 +230,7 @@ pub fn anlegen(neu: NeuerLauf) -> Result<Lauf, String> {
         exit_code: None,
         grund: None,
         jemals_gearbeitet: false,
+        sitzung: None,
     };
 
     schreiben(&lauf)?;
@@ -564,6 +571,10 @@ pub fn protokoll_zeigen(args: &[String]) -> Result<(), String> {
 
     if let Some(auftrag) = &lauf.auftrag {
         println!("Auftrag: {auftrag}");
+    }
+
+    if let Some(sitzung) = &lauf.sitzung {
+        println!("Sitzung: {sitzung}   (weiter mit: ai-brain-cli agent --sitzung {sitzung} \"…\")");
     }
 
     println!();

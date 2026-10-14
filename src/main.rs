@@ -76,6 +76,8 @@ Optionen für `agent`:
   --projekt <slug>      Projekt, in dem gearbeitet wird
   --modell claude|codex Welche Schleife gemietet wird (Vorgabe: claude)
   --dir <Pfad>          Arbeitsverzeichnis (Vorgabe: das aktuelle)
+  --fortsetzen          Die letzte Unterhaltung in diesem Verzeichnis weiterfuehren
+  --sitzung <id>        Eine bestimmte Unterhaltung weiterfuehren (siehe `logs`)
   --imkr                In einem neuen imkr-Fenster statt als Kindprozess
   --zeitgrenze <Sek>    Nach dieser Zeit abbrechen (Vorgabe 3600, 0 = keine)
   --schreibend          Darf Dateien schreiben, ohne zu fragen

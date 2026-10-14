@@ -60,6 +60,25 @@ const HERZSCHLAG_TAKT: Duration = Duration::from_secs(30);
 /// Coding-Aufgabe die grosszügigere Wahl. `--zeitgrenze 0` hebt sie auf.
 const ZEITGRENZE_VORGABE: Duration = Duration::from_secs(3600);
 
+/// Welche Unterhaltung der Lauf benutzt.
+///
+/// Die grösste Lücke gegenüber Hermes war, dass unsere Läufe einmalig waren:
+/// `claude -p` beginnt jedes Mal von vorn, während Hermes Sitzungen über
+/// Monate hält. Die Schalter dafür gibt es in beiden Werkzeugen, wir reichten
+/// sie nur nicht durch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Sitzungswahl {
+    /// Frische Unterhaltung. `kennung` ist eine selbst erzeugte UUID, mit der
+    /// dieser Lauf später fortgesetzt werden kann — nur Claude nimmt eine
+    /// vorgegebene (`--session-id`); codex vergibt seine eigene.
+    Neu { kennung: Option<String> },
+    /// Die letzte Unterhaltung in diesem Verzeichnis (`claude -c`,
+    /// `codex exec resume --last`).
+    Letzte,
+    /// Eine bestimmte (`claude -r <id>`, `codex exec resume <id>`).
+    Bestimmte(String),
+}
+
 /// Wie viel ein Lauf darf.
 ///
 /// Die Stufen über `Fragend` brauchen eine Verzeichnis-Freigabe (#7669). Das
@@ -111,87 +130,135 @@ impl Modell {
         }
     }
 
+    /// Die Rechte-Schalter, abgelesen an `--help` der Werkzeuge.
+    fn rechte_args(&self, rechte: Rechte, in_resume: bool) -> Result<Vec<String>, String> {
+        Ok(match (self, rechte) {
+            (_, Rechte::Fragend) => Vec::new(),
+            (Modell::Claude, Rechte::Schreibend) => {
+                vec!["--permission-mode".into(), "acceptEdits".into()]
+            }
+            (Modell::Claude, Rechte::Vollzugriff) => {
+                vec!["--permission-mode".into(), "bypassPermissions".into()]
+            }
+            // `codex exec resume` kennt KEIN `-s/--sandbox` — nur den
+            // Vollzugriff-Schalter. Die Stufe stillschweigend fallen zu lassen
+            // wäre das Schlimmste: Der Lauf liefe dann mit anderen Rechten als
+            // verlangt, und niemand sähe es.
+            (Modell::Codex, Rechte::Schreibend) if in_resume => {
+                return Err("`codex exec resume` kennt kein `-s/--sandbox` — `--schreibend` \
+                            ist beim Fortsetzen mit codex nicht ausdrückbar. Entweder \
+                            `--vollzugriff`, oder die Rechte-Stufe weglassen, oder \
+                            `--modell claude`."
+                    .to_string());
+            }
+            (Modell::Codex, Rechte::Schreibend) => vec!["-s".into(), "workspace-write".into()],
+            (Modell::Codex, Rechte::Vollzugriff) => {
+                vec!["--dangerously-bypass-approvals-and-sandbox".into()]
+            }
+        })
+    }
+
     /// Der Aufruf für ein Pane: **interaktiv**, mit dem Vorlauf als Argument.
     ///
     /// Kein `-p`: Ein Pane ist zum Zusehen und Mitreden da. Mit `-p` wäre die
     /// Antwort gedruckt und das Pane sofort wieder zu — dann hätte der Umweg
     /// über imkr keinen Sinn. Beide Werkzeuge nehmen einen Start-Auftrag als
     /// Argument (`claude [options] [prompt]`, `codex [OPTIONS] [PROMPT]`).
-    fn befehl_interaktiv(&self, auftrag: &str, rechte: Rechte) -> Vec<String> {
+    fn befehl_interaktiv(
+        &self,
+        auftrag: &str,
+        rechte: Rechte,
+        sitzung: &Sitzungswahl,
+    ) -> Result<Vec<String>, String> {
         let mut args = Vec::new();
 
-        match (self, rechte) {
-            (_, Rechte::Fragend) => {}
-            (Modell::Claude, Rechte::Schreibend) => {
-                args.push("--permission-mode".to_string());
-                args.push("acceptEdits".to_string());
+        match (self, sitzung) {
+            (Modell::Claude, Sitzungswahl::Neu { kennung: Some(k) }) => {
+                args.push("--session-id".to_string());
+                args.push(k.clone());
             }
-            (Modell::Claude, Rechte::Vollzugriff) => {
-                args.push("--permission-mode".to_string());
-                args.push("bypassPermissions".to_string());
+            (Modell::Claude, Sitzungswahl::Letzte) => args.push("-c".to_string()),
+            (Modell::Claude, Sitzungswahl::Bestimmte(id)) => {
+                args.push("-r".to_string());
+                args.push(id.clone());
             }
-            (Modell::Codex, Rechte::Schreibend) => {
-                args.push("-s".to_string());
-                args.push("workspace-write".to_string());
+            // Interaktives codex setzt die Sitzung über `codex resume`; das ist
+            // ein anderer Aufruf und hier bewusst nicht gebaut, statt einen
+            // Schalter zu erfinden.
+            (Modell::Codex, Sitzungswahl::Letzte) | (Modell::Codex, Sitzungswahl::Bestimmte(_)) => {
+                return Err("Fortsetzen im Pane geht nur mit `--modell claude`; für codex \
+                            heisst der interaktive Weg `codex resume` und ist hier nicht \
+                            verdrahtet."
+                    .to_string());
             }
-            (Modell::Codex, Rechte::Vollzugriff) => {
-                args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
-            }
+            _ => {}
         }
 
+        args.extend(self.rechte_args(rechte, false)?);
         args.push(auftrag.to_string());
-        args
+
+        Ok(args)
     }
 
     /// Der Aufruf für einen unbeaufsichtigten Lauf.
     ///
-    /// Die Rechte-Schalter sind an `--help` der jeweiligen Werkzeuge abgelesen,
-    /// nicht erfunden: `claude --permission-mode <acceptEdits|bypassPermissions>`
-    /// und `codex exec -s <workspace-write|…> / --dangerously-bypass-approvals-and-sandbox`.
+    /// Die Schalter sind an `--help` abgelesen, nicht erfunden:
+    /// `claude -p [--session-id|-c|-r] [--permission-mode …]` und
+    /// `codex exec [resume [id|--last]] [-s …]`.
     ///
     /// Eine **Zug-Grenze gibt es nicht** — `claude` kennt kein `--max-turns`.
-    /// Deshalb setzt die CLI nur die Zeitgrenze, und zwar selbst. Einen Schalter
-    /// anzubieten, den die Gegenseite nicht hat, wäre ein Versprechen ohne Deckung.
-    fn befehl(&self, auftrag: &str, rechte: Rechte) -> Vec<String> {
-        match self {
-            // `-p` ist der Druck-/Stapelmodus: ein Auftrag, eine Antwort, kein
-            // Terminal nötig.
-            Modell::Claude => {
-                let mut args = vec!["-p".to_string()];
+    /// Deshalb setzt die CLI nur die Zeitgrenze, und zwar selbst.
+    fn befehl(
+        &self,
+        auftrag: &str,
+        rechte: Rechte,
+        sitzung: &Sitzungswahl,
+    ) -> Result<Vec<String>, String> {
+        let mut args = Vec::new();
 
-                match rechte {
-                    Rechte::Fragend => {}
-                    Rechte::Schreibend => {
-                        args.push("--permission-mode".to_string());
-                        args.push("acceptEdits".to_string());
+        match self {
+            Modell::Claude => {
+                args.push("-p".to_string());
+
+                match sitzung {
+                    Sitzungswahl::Neu { kennung: Some(k) } => {
+                        args.push("--session-id".to_string());
+                        args.push(k.clone());
                     }
-                    Rechte::Vollzugriff => {
-                        args.push("--permission-mode".to_string());
-                        args.push("bypassPermissions".to_string());
+                    Sitzungswahl::Neu { kennung: None } => {}
+                    Sitzungswahl::Letzte => args.push("-c".to_string()),
+                    Sitzungswahl::Bestimmte(id) => {
+                        args.push("-r".to_string());
+                        args.push(id.clone());
                     }
                 }
 
-                args.push(auftrag.to_string());
-                args
+                args.extend(self.rechte_args(rechte, false)?);
             }
             Modell::Codex => {
-                let mut args = vec!["exec".to_string()];
+                args.push("exec".to_string());
 
-                match rechte {
-                    Rechte::Fragend => {}
-                    Rechte::Schreibend => {
-                        args.push("-s".to_string());
-                        args.push("workspace-write".to_string());
+                let fortsetzung = match sitzung {
+                    Sitzungswahl::Letzte => {
+                        args.push("resume".to_string());
+                        args.push("--last".to_string());
+                        true
                     }
-                    Rechte::Vollzugriff => {
-                        args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+                    Sitzungswahl::Bestimmte(id) => {
+                        args.push("resume".to_string());
+                        args.push(id.clone());
+                        true
                     }
-                }
+                    Sitzungswahl::Neu { .. } => false,
+                };
 
-                args.push(auftrag.to_string());
-                args
+                args.extend(self.rechte_args(rechte, fortsetzung)?);
             }
         }
+
+        args.push(auftrag.to_string());
+
+        Ok(args)
     }
 }
 
@@ -206,6 +273,7 @@ pub struct Auftrag {
     pub rechte: Rechte,
     /// Lauf in einem imkr-Pane statt als beaufsichtigter Kindprozess (#7667).
     pub in_imkr: bool,
+    pub sitzung: Sitzungswahl,
     /// `None` heisst: keine Grenze. Vorgabe ist eine Stunde — ein
     /// unbeaufsichtigter Lauf, der haengt, haelt sonst ewig seinen Herzschlag.
     pub zeitgrenze: Option<Duration>,
@@ -223,6 +291,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
     let mut trocken = false;
     let mut rechte = Rechte::Fragend;
     let mut in_imkr = false;
+    let mut sitzung = Sitzungswahl::Neu { kennung: None };
     let mut zeitgrenze = Some(ZEITGRENZE_VORGABE);
     let mut freie = Vec::new();
 
@@ -260,6 +329,14 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
             "--trocken" | "--dry-run" => {
                 trocken = true;
                 i += 1;
+            }
+            "--fortsetzen" | "--weiter" => {
+                sitzung = Sitzungswahl::Letzte;
+                i += 1;
+            }
+            "--sitzung" | "--session" => {
+                sitzung = Sitzungswahl::Bestimmte(wert(i, "--sitzung")?);
+                i += 2;
             }
             "--imkr" | "--pane" => {
                 in_imkr = true;
@@ -316,6 +393,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
         trocken,
         rechte,
         in_imkr,
+        sitzung,
         zeitgrenze,
     })
 }
@@ -491,6 +569,42 @@ fn mcp_eingetragen() -> bool {
         .is_some()
 }
 
+/// Eine wohlgeformte UUID, abgeleitet aus der Lauf-Kennung.
+///
+/// Claude nimmt eine **vorgegebene** Sitzungskennung (`--session-id <uuid>`).
+/// Das ist der saubere Weg: Wir kennen sie damit ohne die Ausgabe zu parsen —
+/// `--output-format json` hätte das Protokoll von lesbarem Text in JSON
+/// verwandelt, nur um eine Zeichenkette zu erfahren.
+///
+/// Abgeleitet statt gewürfelt, weil die CLI bei fünf Abhängigkeiten bleibt
+/// (kein `uuid`, kein `rand`) — und weil die Zuordnung Lauf ↔ Sitzung damit
+/// nachvollziehbar ist. Die Lauf-Kennung ist bereits eindeutig (das Dateisystem
+/// hat sie beansprucht), also ist die Ableitung es auch.
+fn sitzungskennung(lauf_id: &str) -> String {
+    use sha2::{Digest, Sha256};
+
+    let digest = Sha256::digest(format!("ai-brain-cli-sitzung:{lauf_id}").as_bytes());
+    let mut b = [0u8; 16];
+    b.copy_from_slice(&digest[..16]);
+
+    // Fassung 4 und Variante 1 setzen, damit es eine gültige UUID ist und nicht
+    // nur so aussieht — `claude --session-id` verlangt eine echte.
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+
+    let h: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
+    let h = h.join("");
+
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
+}
+
 /// Meldet ein Ereignis des Laufs an AI Brain — bestmöglich, nie blockierend.
 ///
 /// **Ein fehlgeschlagenes Protokoll darf den Lauf nicht verhindern.** Die
@@ -597,7 +711,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         println!(
             "Würde starten: {} {:?}",
             auftrag.modell.programm(),
-            auftrag.modell.befehl("<vorlauf>", auftrag.rechte)
+            auftrag.modell.befehl("<vorlauf>", auftrag.rechte, &auftrag.sitzung)?
         );
         println!("Verzeichnis  : {}", auftrag.verzeichnis.display());
         println!("Rechte       : {}", rechte_wort(auftrag.rechte));
@@ -656,7 +770,9 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     // Schirm statt einer Datei. Würden wir trotzdem hier warten, hielte die
     // CLI ein Terminal fest, das niemand braucht.
     if auftrag.in_imkr {
-        let args = auftrag.modell.befehl_interaktiv(&text, auftrag.rechte);
+        let args = auftrag
+            .modell
+            .befehl_interaktiv(&text, auftrag.rechte, &auftrag.sitzung)?;
 
         match crate::imkr::pane_starten(&auftrag.verzeichnis, auftrag.modell.programm(), &args) {
             Ok(adresse) => {
@@ -683,6 +799,26 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         }
     }
 
+    // Jetzt steht die Lauf-Kennung, also auch die abgeleitete Sitzungskennung.
+    // Nur Claude nimmt eine vorgegebene; codex vergibt seine eigene, dort
+    // bleibt `Neu` ohne Kennung.
+    let sitzung = match (&auftrag.sitzung, &auftrag.modell) {
+        (Sitzungswahl::Neu { .. }, Modell::Claude) => Sitzungswahl::Neu {
+            kennung: Some(sitzungskennung(&lauf.id)),
+        },
+        (sonst, _) => sonst.clone(),
+    };
+
+    if let Sitzungswahl::Neu { kennung: Some(k) } = &sitzung {
+        let mut mit = register::lesen(&lauf.id)?;
+        mit.sitzung = Some(k.clone());
+        register::schreiben(&mit)?;
+    } else if let Sitzungswahl::Bestimmte(id) = &sitzung {
+        let mut mit = register::lesen(&lauf.id)?;
+        mit.sitzung = Some(id.clone());
+        register::schreiben(&mit)?;
+    }
+
     let protokoll = register::protokoll_pfad(&lauf.id)?;
     let datei = std::fs::File::create(&protokoll)
         .map_err(|e| format!("{} lässt sich nicht anlegen: {e}", protokoll.display()))?;
@@ -692,7 +828,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
 
     let mut befehl = Command::new(auftrag.modell.programm());
     befehl
-        .args(auftrag.modell.befehl(&text, auftrag.rechte))
+        .args(auftrag.modell.befehl(&text, auftrag.rechte, &sitzung)?)
         .current_dir(&auftrag.verzeichnis)
         .stdin(Stdio::null())
         .stdout(Stdio::from(datei))
@@ -954,6 +1090,7 @@ mod tests {
             trocken: false,
             rechte: Rechte::Fragend,
             in_imkr: false,
+            sitzung: Sitzungswahl::Neu { kennung: None },
             zeitgrenze: Some(ZEITGRENZE_VORGABE),
         };
 
@@ -1000,25 +1137,26 @@ mod tests {
     #[test]
     fn rechte_setzen_die_abgelesenen_schalter() {
         // Gegen `--help` der Werkzeuge abgeglichen, nicht aus dem Gedächtnis.
+        let neu = Sitzungswahl::Neu { kennung: None };
         let claude = Modell::Claude;
-        assert_eq!(claude.befehl("hi", Rechte::Fragend), vec!["-p", "hi"]);
+        assert_eq!(claude.befehl("hi", Rechte::Fragend, &neu).unwrap(), vec!["-p", "hi"]);
         assert_eq!(
-            claude.befehl("hi", Rechte::Schreibend),
+            claude.befehl("hi", Rechte::Schreibend, &neu).unwrap(),
             vec!["-p", "--permission-mode", "acceptEdits", "hi"]
         );
         assert_eq!(
-            claude.befehl("hi", Rechte::Vollzugriff),
+            claude.befehl("hi", Rechte::Vollzugriff, &neu).unwrap(),
             vec!["-p", "--permission-mode", "bypassPermissions", "hi"]
         );
 
         let codex = Modell::Codex;
-        assert_eq!(codex.befehl("hi", Rechte::Fragend), vec!["exec", "hi"]);
+        assert_eq!(codex.befehl("hi", Rechte::Fragend, &neu).unwrap(), vec!["exec", "hi"]);
         assert_eq!(
-            codex.befehl("hi", Rechte::Schreibend),
+            codex.befehl("hi", Rechte::Schreibend, &neu).unwrap(),
             vec!["exec", "-s", "workspace-write", "hi"]
         );
         assert_eq!(
-            codex.befehl("hi", Rechte::Vollzugriff),
+            codex.befehl("hi", Rechte::Vollzugriff, &neu).unwrap(),
             vec!["exec", "--dangerously-bypass-approvals-and-sandbox", "hi"]
         );
 
@@ -1026,7 +1164,7 @@ mod tests {
         // nähme das Werkzeug ihn als Wert dieses Schalters.
         for rechte in [Rechte::Fragend, Rechte::Schreibend, Rechte::Vollzugriff] {
             for modell in [Modell::Claude, Modell::Codex] {
-                let args = modell.befehl("DER-AUFTRAG", rechte);
+                let args = modell.befehl("DER-AUFTRAG", rechte, &neu).unwrap();
                 assert_eq!(args.last().unwrap(), "DER-AUFTRAG");
             }
         }
@@ -1049,7 +1187,9 @@ mod tests {
         // gedruckt und das Pane sofort wieder zu — dann hat der Umweg über
         // imkr keinen Sinn.
         for modell in [Modell::Claude, Modell::Codex] {
-            let args = modell.befehl_interaktiv("AUFTRAG", Rechte::Vollzugriff);
+            let args = modell
+                .befehl_interaktiv("AUFTRAG", Rechte::Vollzugriff, &Sitzungswahl::Neu { kennung: None })
+                .unwrap();
 
             assert!(
                 !args.contains(&"-p".to_string()),
@@ -1063,15 +1203,103 @@ mod tests {
         }
 
         // Die Rechte gelten auf beiden Wegen gleich.
+        let neu = Sitzungswahl::Neu { kennung: None };
         assert_eq!(
-            Modell::Claude.befehl_interaktiv("x", Rechte::Vollzugriff),
+            Modell::Claude.befehl_interaktiv("x", Rechte::Vollzugriff, &neu).unwrap(),
             vec!["--permission-mode", "bypassPermissions", "x"]
         );
         assert_eq!(
-            Modell::Codex.befehl_interaktiv("x", Rechte::Schreibend),
+            Modell::Codex.befehl_interaktiv("x", Rechte::Schreibend, &neu).unwrap(),
             vec!["-s", "workspace-write", "x"]
         );
-        assert_eq!(Modell::Claude.befehl_interaktiv("x", Rechte::Fragend), vec!["x"]);
+        assert_eq!(
+            Modell::Claude.befehl_interaktiv("x", Rechte::Fragend, &neu).unwrap(),
+            vec!["x"]
+        );
+    }
+
+    #[test]
+    fn fortsetzen_setzt_die_abgelesenen_schalter() {
+        // Abgeglichen an `--help`, und am echten Werkzeug nachgewiesen: eine
+        // selbst erzeugte UUID an `claude -p --session-id` übergeben, danach
+        // mit `-r` fortgesetzt — das Modell erinnerte sich.
+        let letzte = Sitzungswahl::Letzte;
+        let bestimmte = Sitzungswahl::Bestimmte("abc-123".to_string());
+        let mit_kennung = Sitzungswahl::Neu {
+            kennung: Some("7f3a9c21-4e5b-4a7d-8c91-2b6e4f1a0d33".to_string()),
+        };
+
+        assert_eq!(
+            Modell::Claude.befehl("w", Rechte::Fragend, &mit_kennung).unwrap(),
+            vec!["-p", "--session-id", "7f3a9c21-4e5b-4a7d-8c91-2b6e4f1a0d33", "w"]
+        );
+        assert_eq!(
+            Modell::Claude.befehl("w", Rechte::Fragend, &letzte).unwrap(),
+            vec!["-p", "-c", "w"]
+        );
+        assert_eq!(
+            Modell::Claude.befehl("w", Rechte::Fragend, &bestimmte).unwrap(),
+            vec!["-p", "-r", "abc-123", "w"]
+        );
+
+        // codex nimmt KEINE vorgegebene Kennung — `Neu` bleibt dort nackt.
+        assert_eq!(
+            Modell::Codex.befehl("w", Rechte::Fragend, &mit_kennung).unwrap(),
+            vec!["exec", "w"]
+        );
+        assert_eq!(
+            Modell::Codex.befehl("w", Rechte::Fragend, &letzte).unwrap(),
+            vec!["exec", "resume", "--last", "w"]
+        );
+        assert_eq!(
+            Modell::Codex.befehl("w", Rechte::Vollzugriff, &bestimmte).unwrap(),
+            vec![
+                "exec",
+                "resume",
+                "abc-123",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "w"
+            ]
+        );
+
+        // Und die Kombination, die NICHT geht: `codex exec resume` kennt kein
+        // `-s/--sandbox`. Stillschweigend fallen lassen wäre das Schlimmste —
+        // der Lauf liefe mit anderen Rechten als verlangt, und niemand sähe es.
+        let fehler = Modell::Codex
+            .befehl("w", Rechte::Schreibend, &letzte)
+            .unwrap_err();
+        assert!(fehler.contains("resume"), "{fehler}");
+        assert!(fehler.contains("vollzugriff") || fehler.contains("Vollzugriff"), "{fehler}");
+
+        // Ohne Fortsetzung geht `--schreibend` bei codex sehr wohl.
+        assert!(Modell::Codex
+            .befehl("w", Rechte::Schreibend, &Sitzungswahl::Neu { kennung: None })
+            .is_ok());
+    }
+
+    #[test]
+    fn sitzungskennung_ist_eine_gueltige_uuid_und_stabil() {
+        let a = sitzungskennung("1760440000-999");
+        let b = sitzungskennung("1760440000-999");
+        let c = sitzungskennung("1760440000-998");
+
+        assert_eq!(a, b, "dieselbe Lauf-Kennung muss dieselbe Sitzung ergeben");
+        assert_ne!(a, c, "verschiedene Läufe brauchen verschiedene Sitzungen");
+
+        // `claude --session-id` verlangt eine ECHTE UUID — Form, Fassung 4 und
+        // Variante müssen stimmen, nicht nur so aussehen.
+        let teile: Vec<&str> = a.split('-').collect();
+        assert_eq!(
+            teile.iter().map(|t| t.len()).collect::<Vec<_>>(),
+            vec![8, 4, 4, 4, 12],
+            "{a}"
+        );
+        assert!(a.chars().all(|c| c.is_ascii_hexdigit() || c == '-'), "{a}");
+        assert_eq!(teile[2].chars().next().unwrap(), '4', "Fassung 4: {a}");
+        assert!(
+            matches!(teile[3].chars().next().unwrap(), '8' | '9' | 'a' | 'b'),
+            "Variante 1: {a}"
+        );
     }
 
     #[test]
@@ -1103,6 +1331,27 @@ mod tests {
         )
         .unwrap();
         assert_eq!(a.zeitgrenze, None, "0 hebt die Grenze auf");
+
+        // Vorgabe ist eine frische Unterhaltung, nicht die letzte — sonst
+        // hängte ein Lauf unbemerkt an einem fremden Gespräch.
+        let a = auftrag_lesen(&["x".to_string()], PathBuf::from("/tmp")).unwrap();
+        assert_eq!(a.sitzung, Sitzungswahl::Neu { kennung: None });
+
+        let a = auftrag_lesen(
+            &["--fortsetzen".to_string(), "x".to_string()],
+            PathBuf::from("/tmp"),
+        )
+        .unwrap();
+        assert_eq!(a.sitzung, Sitzungswahl::Letzte);
+
+        let a = auftrag_lesen(
+            &["--sitzung".to_string(), "abc".to_string(), "x".to_string()],
+            PathBuf::from("/tmp"),
+        )
+        .unwrap();
+        assert_eq!(a.sitzung, Sitzungswahl::Bestimmte("abc".to_string()));
+
+        assert!(auftrag_lesen(&["--sitzung".to_string()], PathBuf::from("/tmp")).is_err());
 
         assert!(auftrag_lesen(
             &["--zeitgrenze".to_string(), "bald".to_string()],
