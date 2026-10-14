@@ -222,8 +222,7 @@ fn nutzlast(body: &str) -> String {
     body.lines()
         .filter_map(|z| z.strip_prefix("data:"))
         .map(str::trim)
-        .filter(|z| !z.is_empty())
-        .last()
+        .rfind(|z| !z.is_empty())
         .unwrap_or("")
         .to_string()
 }
@@ -286,4 +285,37 @@ fn respond_with_error(
     stdout.flush().map_err(|e| format!("stdout nicht leerbar: {e}"))?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::nutzlast;
+
+    /// `nutzlast` war bis zum 14.10.2026 ungetestet — aufgefallen beim
+    /// Aufräumen eines clippy-Befundes (`filter(..).last()` → `rfind`). Ein
+    /// Umbau an einer Parse-Funktion ohne Test ist eine Wette; hier ist der
+    /// Test, der sie unnötig macht.
+    #[test]
+    fn nutzlast_nimmt_das_letzte_datenfeld() {
+        // Der Normalfall: eine gewöhnliche JSON-Antwort ohne SSE-Rahmen.
+        assert_eq!(nutzlast("  {\"ok\":true}  "), "{\"ok\":true}");
+
+        // SSE: Es zählt das LETZTE nicht-leere `data:` — bei MCP über HTTP
+        // kommt die Antwort als Ereignisstrom, und davor können Kommentar-
+        // und Leerzeilen stehen.
+        let strom = ": ping\n\
+                     event: message\n\
+                     data: {\"erste\":1}\n\
+                     \n\
+                     data:\n\
+                     data: {\"letzte\":2}\n\
+                     \n";
+        assert_eq!(nutzlast(strom), "{\"letzte\":2}");
+
+        // Nur leere Datenfelder: leere Zeichenkette, kein Absturz.
+        assert_eq!(nutzlast("data:\ndata:   \n"), "");
+
+        // Ein einzelnes Feld ohne Leerzeichen hinter dem Doppelpunkt.
+        assert_eq!(nutzlast("data:{\"a\":1}"), "{\"a\":1}");
+    }
 }

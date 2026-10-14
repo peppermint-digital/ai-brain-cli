@@ -176,10 +176,9 @@ pub fn load() -> Result<Connection, String> {
     let path = config_path()?;
 
     let raw = fs::read_to_string(&path).map_err(|_| {
-        format!(
-            "Dieser Rechner ist noch nicht verbunden.\n\
-             Führe zuerst aus:  ai-brain-cli connect <domain>"
-        )
+        "Dieser Rechner ist noch nicht verbunden.\n\
+         Führe zuerst aus:  ai-brain-cli connect <domain>"
+            .to_string()
     })?;
 
     serde_json::from_str(&raw).map_err(|e| format!("{} ist beschädigt: {e}", path.display()))
