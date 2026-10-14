@@ -37,7 +37,7 @@ jobs:
         include:
           - os: ubuntu-latest
             ziel: x86_64-unknown-linux-gnu
-            datei: ai-brain-companion
+            datei: ai-brain-cli
           # Beide macOS-Ziele auf demselben Laeufer: Das SDK bringt beide
           # Architekturen mit, Rust kann von Apple Silicon nach Intel bauen.
           # Der frueher hier stehende `macos-13`-Laeufer ist ausgemustert — der
@@ -47,13 +47,13 @@ jobs:
           # wartet: der unangenehmere Fehlermodus.
           - os: macos-latest
             ziel: aarch64-apple-darwin
-            datei: ai-brain-companion
+            datei: ai-brain-cli
           - os: macos-latest
             ziel: x86_64-apple-darwin
-            datei: ai-brain-companion
+            datei: ai-brain-cli
           - os: windows-latest
             ziel: x86_64-pc-windows-msvc
-            datei: ai-brain-companion.exe
+            datei: ai-brain-cli.exe
 
     steps:
       - uses: actions/checkout@v4
@@ -69,7 +69,7 @@ jobs:
         run: |
           mkdir -p dist
           cp "target/${{ matrix.ziel }}/release/${{ matrix.datei }}" \
-             "dist/ai-brain-companion-${{ matrix.ziel }}${{ matrix.datei == 'ai-brain-companion.exe' && '.exe' || '' }}"
+             "dist/ai-brain-cli-${{ matrix.ziel }}${{ matrix.datei == 'ai-brain-cli.exe' && '.exe' || '' }}"
 
       - uses: actions/upload-artifact@v4
         with:

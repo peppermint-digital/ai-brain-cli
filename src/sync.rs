@@ -21,7 +21,7 @@
 //! bis auf das letzte Escaping identisch serialisieren, und schon ein
 //! Unterschied ließe alles als „geändert" erscheinen.
 //!
-//! Stattdessen merkt sich der Companion bei jedem Schreiben zwei Dinge: die
+//! Stattdessen merkt sich die CLI bei jedem Schreiben zwei Dinge: die
 //! Prüfsumme, die der Server damals nannte, und einen selbst gebildeten Hash
 //! über die Dateien, wie er sie hingelegt hat. Beim nächsten Lauf wird der
 //! erste mit dem Server verglichen (hat sich dort etwas getan?) und der zweite
@@ -150,10 +150,10 @@ enum Verdict {
     Konflikt,
     /// Identisch.
     Unveraendert,
-    /// Liegt lokal, der Companion hat es nie geschrieben, und der Inhalt
+    /// Liegt lokal, die CLI hat es nie geschrieben, und der Inhalt
     /// weicht ab.
     Fremd,
-    /// Liegt lokal, der Companion hat es nie geschrieben — aber der Inhalt ist
+    /// Liegt lokal, die CLI hat es nie geschrieben — aber der Inhalt ist
     /// identisch. Wird ohne Schreiben in den Stand übernommen.
     Uebernommen,
     /// Kein Dateibestand — wird grundsätzlich nicht angefasst.
@@ -243,7 +243,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
         let verdict = match (target.exists(), state.items.get(&key)) {
             (false, _) => Verdict::Neu,
-            // Verzeichnis da, aber der Companion kennt es nicht. Statt es
+            // Verzeichnis da, aber die CLI kennt es nicht. Statt es
             // pauschal als fremd zu behandeln, wird nachgesehen: Auf einem
             // Rechner, der die Skills schon von Hand hat, sind sie meist
             // identisch — dann gibt es nichts zu tun ausser sie zu übernehmen.
@@ -280,7 +280,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     // laeuft. Wurde der Eintrag auf einem anderen Weg
                     // geschrieben (serverseitig ueber das Install-Werkzeug, von
                     // Hand, durch ein zweites Werkzeug), ist nur die
-                    // Buchfuehrung des Companions veraltet; die Dateien sind
+                    // Buchfuehrung der CLI veraltet; die Dateien sind
                     // laengst dieselben.
                     //
                     // Also erst nachsehen, dann urteilen — sonst meldet jeder
@@ -327,7 +327,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         save_state(&state)?;
     }
 
-    // Was der Companion einmal geschrieben hat, jetzt aber nicht mehr im
+    // Was die CLI einmal geschrieben hat, jetzt aber nicht mehr im
     // Manifest steht: abgewaehlt oder aus dem Repository verschwunden.
     //
     // Entfernt wird NUR, was er selbst angelegt hat UND was seither unveraendert
@@ -400,7 +400,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     if !apply {
         println!();
-        println!("Nichts geschrieben. Zum Anwenden:  ai-brain-companion sync --apply");
+        println!("Nichts geschrieben. Zum Anwenden:  ai-brain-cli sync --apply");
         return Ok(());
     }
 
@@ -536,7 +536,7 @@ fn entscheiden(
 ) -> Result<bool, String> {
     let lage = match verdict {
         Verdict::Konflikt => "hier UND auf der Instanz geaendert",
-        _ => "liegt hier, stammt aber nicht vom Companion",
+        _ => "liegt hier, stammt aber nicht vom ai-brain-cli",
     };
 
     println!();
@@ -721,7 +721,7 @@ fn report(plan: &[(ManifestItem, Verdict, PathBuf)]) {
     zeige(
         &Verdict::KeinDateibestand,
         "Nicht als Datei ablegbar",
-        "Hooks sind Befehle in der settings.json — die richtet der Companion nicht selbst ein",
+        "Hooks sind Befehle in der settings.json — die richtet die CLI nicht selbst ein",
     );
 
     let unveraendert = plan.iter().filter(|(_, v, _)| *v == Verdict::Unveraendert).count();
@@ -1013,7 +1013,7 @@ pub fn publish(args: &[String]) -> Result<(), String> {
     }
 
     let name = name.ok_or_else(|| {
-        "Welcher Eintrag? Beispiel:\n  ai-brain-companion publish mein-skill".to_string()
+        "Welcher Eintrag? Beispiel:\n  ai-brain-cli publish mein-skill".to_string()
     })?;
 
     let connection = config::load()?;

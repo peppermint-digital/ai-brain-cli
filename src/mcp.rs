@@ -42,7 +42,7 @@ pub fn serve() -> Result<(), String> {
     let connection = config::load()?;
 
     eprintln!(
-        "ai-brain-companion: verbunden mit {} als Gerät „{}“",
+        "ai-brain-cli: verbunden mit {} als Gerät „{}“",
         connection.base_url, connection.device_name
     );
 
@@ -62,7 +62,7 @@ pub fn serve() -> Result<(), String> {
         let message: serde_json::Value = match serde_json::from_str(trimmed) {
             Ok(value) => value,
             Err(e) => {
-                eprintln!("ai-brain-companion: ungültiges JSON von Claude Code übersprungen ({e})");
+                eprintln!("ai-brain-cli: ungültiges JSON von Claude Code übersprungen ({e})");
                 continue;
             }
         };
@@ -72,7 +72,7 @@ pub fn serve() -> Result<(), String> {
         let token = match token(&connection, &mut cache) {
             Ok(token) => token,
             Err(err) => {
-                eprintln!("ai-brain-companion: {err}");
+                eprintln!("ai-brain-cli: {err}");
 
                 if !is_notification {
                     respond_with_error(&mut stdout, &message, &err)?;
@@ -93,7 +93,7 @@ pub fn serve() -> Result<(), String> {
                 // Leere Antwort — bei Notifications der Normalfall.
             }
             Err(err) => {
-                eprintln!("ai-brain-companion: {err}");
+                eprintln!("ai-brain-cli: {err}");
 
                 if !is_notification {
                     respond_with_error(&mut stdout, &message, &err)?;
@@ -136,7 +136,7 @@ fn token(connection: &Connection, cache: &mut Option<TokenCache>) -> Result<Stri
         .map_err(|e| match e {
             ureq::Error::Status(401, _) => format!(
                 "Der Gerätezugang wurde abgelehnt. Wurde er unter „Meine Geräte“ entzogen? \
-                 Dann neu koppeln: ai-brain-companion connect {}",
+                 Dann neu koppeln: ai-brain-cli connect {}",
                 connection.base_url
             ),
             other => format!("Token nicht erhältlich: {other}"),
@@ -159,7 +159,7 @@ fn token(connection: &Connection, cache: &mut Option<TokenCache>) -> Result<Stri
 /// Ruft ein Werkzeug der Instanz auf und gibt dessen Nutzlast als JSON zurück.
 ///
 /// Der `mcp`-Unterbefehl reicht fremde Anfragen nur durch; hier formt der
-/// Companion selbst eine. Beides läuft über denselben Kanal und dieselbe
+/// ai-brain-cli selbst eine. Beides läuft über denselben Kanal und dieselbe
 /// Anmeldung — es gibt genau einen Weg zur Instanz, und der ist MCP.
 ///
 /// Ein `initialize` ist nicht nötig: Der HTTP-Weg ist zustandslos, jede

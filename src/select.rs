@@ -321,7 +321,7 @@ fn speichern(
     }
 
     println!();
-    println!("Wirksam wird das beim naechsten Abgleich:  ai-brain-companion sync --apply");
+    println!("Wirksam wird das beim naechsten Abgleich:  ai-brain-cli sync --apply");
 
     Ok(())
 }

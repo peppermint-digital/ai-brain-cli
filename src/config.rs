@@ -31,33 +31,133 @@ pub fn heimat() -> Result<PathBuf, String> {
 
 pub fn config_dir() -> Result<PathBuf, String> {
     if let Some(xdg) = std::env::var_os("XDG_CONFIG_HOME") {
-        return Ok(PathBuf::from(xdg).join("ai-brain-companion"));
+        return Ok(PathBuf::from(xdg).join("ai-brain-cli"));
     }
 
     // Unter Windows gehört so etwas nach %APPDATA%, nicht in ein verstecktes
     // Verzeichnis im Heimatordner. XDG gibt es dort nicht.
     if cfg!(windows) {
         if let Some(appdata) = std::env::var_os("APPDATA") {
-            return Ok(PathBuf::from(appdata).join("ai-brain-companion"));
+            return Ok(PathBuf::from(appdata).join("ai-brain-cli"));
         }
     }
 
-    Ok(heimat()?.join(".config").join("ai-brain-companion"))
+    Ok(heimat()?.join(".config").join("ai-brain-cli"))
 }
 
 pub fn config_path() -> Result<PathBuf, String> {
     Ok(config_dir()?.join("connection.json"))
 }
 
+/// Der Ordner, unter dem bis zur Umbenennung alles lag (#7664).
+fn alter_config_dir() -> Result<PathBuf, String> {
+    let neu = config_dir()?;
+    let name = neu
+        .file_name()
+        .ok_or_else(|| format!("{} hat keinen Namen.", neu.display()))?;
+
+    if name != "ai-brain-cli" {
+        return Err("Unerwarteter Name der Ablage.".to_string());
+    }
+
+    Ok(neu.with_file_name("ai-brain-companion"))
+}
+
+/// Holt die Ablage des alten Namens herüber — einmalig, beim ersten Lauf (#7664).
+///
+/// Die Bedingung hängt an der **Verbindung**, nicht am Ordner. Das ist kein
+/// Feinschliff: `install.sh` legt die Ablage selbst an und schreibt `instanz`
+/// hinein, bevor dieses Programm das erste Mal läuft. Eine Prüfung auf „neuer
+/// Ordner existiert nicht" würde nach jedem Installer-Lauf schweigen — und die
+/// Zugangsdaten blieben unter dem alten Namen liegen, während das Programm
+/// „Dieser Rechner ist noch nicht verbunden" meldet.
+///
+/// Es zieht der **ganze Inhalt** um, nicht nur `connection.json`: daneben liegen
+/// `sync-state.json` (welcher Eintrag in welcher Fassung hier liegt) und
+/// `gesicherte-fassungen/`. Bliebe der Abgleichstand zurück, meldete `sync`
+/// anschliessend jeden Eintrag als geändert — und `--force` schöbe die Arbeit
+/// der Nutzer als `.lokal` weg, obwohl sich nichts getan hat.
+///
+/// Was schon im neuen Ordner liegt, bleibt liegen: Die `instanz`, die der
+/// Installer gerade geschrieben hat, nennt die Instanz, von der der Nutzer
+/// eben installiert hat — die ist aktueller als die alte.
+pub fn uebernimm_alte_ablage() {
+    let (Ok(neu), Ok(alt)) = (config_dir(), alter_config_dir()) else {
+        return;
+    };
+
+    if neu.join("connection.json").exists() || !alt.join("connection.json").exists() {
+        return;
+    }
+
+    if let Err(e) = fs::create_dir_all(&neu) {
+        eprintln!(
+            "ai-brain-cli: {} lässt sich nicht anlegen ({e}).",
+            neu.display()
+        );
+        return;
+    }
+
+    let Ok(eintraege) = fs::read_dir(&alt) else {
+        eprintln!("ai-brain-cli: {} lässt sich nicht lesen.", alt.display());
+        return;
+    };
+
+    let mut geholt = 0usize;
+    let mut stehengeblieben = 0usize;
+
+    for eintrag in eintraege.flatten() {
+        let ziel = neu.join(eintrag.file_name());
+
+        if ziel.exists() {
+            stehengeblieben += 1;
+            continue;
+        }
+
+        match fs::rename(eintrag.path(), &ziel) {
+            Ok(()) => geholt += 1,
+            Err(e) => {
+                stehengeblieben += 1;
+                eprintln!(
+                    "ai-brain-cli: {} liess sich nicht übernehmen ({e}).",
+                    eintrag.path().display()
+                );
+            }
+        }
+    }
+
+    // Nur wenn nichts zurückblieb, ist der alte Ordner wirklich erledigt.
+    // `remove_dir` (nicht `_all`) ist Absicht: Es darf nur ein LEERES
+    // Verzeichnis verschwinden — alles andere wäre ein Löschweg für Daten,
+    // die wir gerade nicht holen konnten.
+    if stehengeblieben == 0 {
+        let _ = fs::remove_dir(&alt);
+    }
+
+    eprintln!(
+        "ai-brain-cli: Ablage übernommen — {} Eintrag/Einträge aus {} nach {}{}",
+        geholt,
+        alt.display(),
+        neu.display(),
+        if stehengeblieben > 0 {
+            format!(", {stehengeblieben} blieb(en) stehen")
+        } else {
+            String::new()
+        }
+    );
+}
+
 pub fn save(connection: &Connection) -> Result<PathBuf, String> {
     let dir = config_dir()?;
-    fs::create_dir_all(&dir).map_err(|e| format!("{} lässt sich nicht anlegen: {e}", dir.display()))?;
+    fs::create_dir_all(&dir)
+        .map_err(|e| format!("{} lässt sich nicht anlegen: {e}", dir.display()))?;
 
     let path = config_path()?;
     let json = serde_json::to_string_pretty(connection)
         .map_err(|e| format!("Verbindung lässt sich nicht schreiben: {e}"))?;
 
-    fs::write(&path, json).map_err(|e| format!("{} lässt sich nicht schreiben: {e}", path.display()))?;
+    fs::write(&path, json)
+        .map_err(|e| format!("{} lässt sich nicht schreiben: {e}", path.display()))?;
 
     // Die Datei enthält ein Client-Secret. Auf Unix eng stellen, damit sie
     // nicht für andere Konten des Rechners lesbar ist. Ein Schlüsselbund wäre
@@ -78,7 +178,7 @@ pub fn load() -> Result<Connection, String> {
     let raw = fs::read_to_string(&path).map_err(|_| {
         format!(
             "Dieser Rechner ist noch nicht verbunden.\n\
-             Führe zuerst aus:  ai-brain-companion connect <domain>"
+             Führe zuerst aus:  ai-brain-cli connect <domain>"
         )
     })?;
 
@@ -102,7 +202,8 @@ pub fn disconnect() -> Result<(), String> {
     let path = config_path()?;
 
     if path.exists() {
-        fs::remove_file(&path).map_err(|e| format!("{} lässt sich nicht löschen: {e}", path.display()))?;
+        fs::remove_file(&path)
+            .map_err(|e| format!("{} lässt sich nicht löschen: {e}", path.display()))?;
         println!("Lokale Verbindung entfernt.");
     } else {
         println!("Es war keine Verbindung hinterlegt.");
@@ -119,7 +220,7 @@ fn claude_config_path() -> Result<PathBuf, String> {
     Ok(heimat()?.join(".claude.json"))
 }
 
-/// Trägt den Companion als MCP-Server in Claude Code ein.
+/// Trägt die CLI als MCP-Server in Claude Code ein.
 ///
 /// Bewusst mit Sicherung vorher: `~/.claude.json` gehört Claude Code, enthält
 /// weit mehr als unseren Eintrag, und ein kaputtes JSON dort kostet den Nutzer
@@ -163,7 +264,8 @@ pub fn write_claude_config() -> Result<PathBuf, String> {
     let json = serde_json::to_string_pretty(&root)
         .map_err(|e| format!("Konfiguration lässt sich nicht schreiben: {e}"))?;
 
-    fs::write(&path, json).map_err(|e| format!("{} lässt sich nicht schreiben: {e}", path.display()))?;
+    fs::write(&path, json)
+        .map_err(|e| format!("{} lässt sich nicht schreiben: {e}", path.display()))?;
 
     Ok(path)
 }
@@ -258,14 +360,89 @@ mod tests {
         std::env::set_var("XDG_CONFIG_HOME", "/tmp/xdg");
         assert_eq!(
             config_dir().unwrap(),
-            PathBuf::from("/tmp/xdg/ai-brain-companion")
+            PathBuf::from("/tmp/xdg/ai-brain-cli")
         );
 
         std::env::remove_var("XDG_CONFIG_HOME");
         assert_eq!(
             config_dir().unwrap(),
-            PathBuf::from("/tmp/zuhause/.config/ai-brain-companion")
+            PathBuf::from("/tmp/zuhause/.config/ai-brain-cli")
         );
+
+        // Die Übernahme vom alten Namen (#7664). Steht in DIESEM Test, nicht in
+        // einem eigenen — aus demselben Grund wie alles andere hier: der Umzug
+        // haengt an XDG_CONFIG_HOME, und zwei Tests wuerden sich die Variable
+        // gegenseitig wegziehen.
+        let spielwiese =
+            std::env::temp_dir().join(format!("ai-brain-cli-uebernahme-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&spielwiese);
+        std::env::set_var("XDG_CONFIG_HOME", &spielwiese);
+
+        let alt = spielwiese.join("ai-brain-companion");
+        let neu = spielwiese.join("ai-brain-cli");
+
+        let alt_anlegen = || {
+            fs::create_dir_all(&alt).unwrap();
+            fs::write(alt.join("connection.json"), "{}").unwrap();
+            // Der Abgleichstand MUSS mitkommen — bleibt er zurueck, meldet
+            // `sync` danach jeden Eintrag als geaendert.
+            fs::write(alt.join("sync-state.json"), "ABGLEICH").unwrap();
+        };
+
+        // Fall 1: Der Rechner hat nur die alte Ablage.
+        alt_anlegen();
+        uebernimm_alte_ablage();
+
+        assert!(!alt.exists(), "der leere alte Ordner muss verschwinden");
+        assert_eq!(
+            fs::read_to_string(neu.join("connection.json")).unwrap(),
+            "{}"
+        );
+        assert_eq!(
+            fs::read_to_string(neu.join("sync-state.json")).unwrap(),
+            "ABGLEICH",
+            "der Abgleichstand muss mit umziehen"
+        );
+
+        // Fall 2 — der Fall, der fast durchgerutscht waere: `install.sh` legt
+        // die neue Ablage selbst an und schreibt `instanz` hinein, BEVOR dieses
+        // Programm das erste Mal laeuft. Eine Pruefung auf „Ordner existiert
+        // nicht" wuerde hier schweigen und die Zugangsdaten zurueck lassen.
+        let _ = fs::remove_dir_all(&neu);
+        fs::create_dir_all(&neu).unwrap();
+        fs::write(neu.join("instanz"), "https://neue-instanz.example").unwrap();
+        alt_anlegen();
+        fs::write(alt.join("instanz"), "https://alte-instanz.example").unwrap();
+
+        uebernimm_alte_ablage();
+
+        assert_eq!(
+            fs::read_to_string(neu.join("connection.json")).unwrap(),
+            "{}",
+            "die Verbindung muss trotz vorhandenem Ordner herueberkommen"
+        );
+        assert_eq!(
+            fs::read_to_string(neu.join("instanz")).unwrap(),
+            "https://neue-instanz.example",
+            "die vom Installer geschriebene Instanz ist die aktuellere und bleibt"
+        );
+        assert!(
+            alt.exists(),
+            "blieb etwas stehen, bleibt auch der alte Ordner — kein Loeschweg"
+        );
+
+        // Fall 3: Ist die Verbindung schon drueben, wird nichts mehr angefasst.
+        let _ = fs::remove_dir_all(&alt);
+        alt_anlegen();
+        fs::write(alt.join("connection.json"), "FREMD").unwrap();
+        uebernimm_alte_ablage();
+        assert_eq!(
+            fs::read_to_string(neu.join("connection.json")).unwrap(),
+            "{}",
+            "eine vorhandene Verbindung darf nicht ueberschrieben werden"
+        );
+
+        let _ = fs::remove_dir_all(&spielwiese);
 
         for (k, wert) in sicherung {
             match wert {

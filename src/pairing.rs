@@ -4,7 +4,7 @@
 //! Zugangstoken, sondern ein eigener Gerätezugang: eigene Client-ID, eigenes
 //! Secret, Besitzer ist der Mensch, der im Browser bestätigt hat. Erst dadurch
 //! bleibt die Zurechnung pro Gerät erhalten — ein geteilter Token für alle
-//! Companions würde genau die Unterscheidung einebnen, um die es geht.
+//! ai-brain-clis würde genau die Unterscheidung einebnen, um die es geht.
 
 use crate::config::{self, Connection};
 use crate::discovery;
@@ -106,13 +106,13 @@ pub fn connect(args: &[String]) -> Result<(), String> {
                 format!("{z}Für ein Update genügt es, das Programm zu ersetzen — die Verbindung"),
                 format!("{z}bleibt bestehen. Weiter geht es mit:"),
                 format!("{z}"),
-                format!("{z}  ai-brain-companion status"),
-                format!("{z}  ai-brain-companion sync --apply"),
+                format!("{z}  ai-brain-cli status"),
+                format!("{z}  ai-brain-cli sync --apply"),
                 format!("{z}"),
                 format!("{z}Soll wirklich ein ZWEITER Gerätezugang entstehen (etwa für ein"),
                 format!("{z}zweites Konto auf dieser Maschine), dann ausdrücklich:"),
                 format!("{z}"),
-                format!("{z}  ai-brain-companion connect --neu"),
+                format!("{z}  ai-brain-cli connect --neu"),
                 format!("{z}"),
                 format!("{z}Bestehende Verbindung ersetzen: erst disconnect, dann connect."),
             ]
@@ -126,7 +126,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
     let domain = match domain {
         Some(d) => d,
         None => gemerkte_instanz().ok_or_else(|| {
-            "Welche Instanz? Beispiel:\n  ai-brain-companion connect brain.example.com\n\n             Kam das Programm von einer Instanz, steht ihre Adresse in\n             ~/.config/ai-brain-companion/instanz — dort ist sie offenbar nicht."
+            "Welche Instanz? Beispiel:\n  ai-brain-cli connect brain.example.com\n\n             Kam das Programm von einer Instanz, steht ihre Adresse in\n             ~/.config/ai-brain-cli/instanz — dort ist sie offenbar nicht."
                 .to_string()
         })?,
     };
@@ -138,7 +138,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
 
     let client_id = instance.oauth.companion_client_id.clone().ok_or_else(|| {
         format!(
-            "{} kennt noch keinen Companion-Zugang.\n\
+            "{} kennt noch keinen CLI-Zugang.\n\
              Auf der Instanz einmalig ausführen:  php artisan mcp:companion-client",
             instance.name
         )
@@ -219,7 +219,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
                 // das Ergebnis bringen.
                 eprintln!();
                 eprintln!("Hinweis: Claude-Code-Konfiguration nicht angepasst ({err}).");
-                eprintln!("Trag den MCP-Server „ai-brain“ von Hand ein, Befehl: ai-brain-companion mcp");
+                eprintln!("Trag den MCP-Server „ai-brain“ von Hand ein, Befehl: ai-brain-cli mcp");
             }
         }
     }

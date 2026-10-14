@@ -1,4 +1,4 @@
-//! AI Brain Companion
+//! AI Brain CLI
 //!
 //! Verbindet einen Rechner mit einer AI-Brain-Instanz und stellt deren
 //! MCP-Server danach für Claude Code bereit.
@@ -16,7 +16,7 @@
 //! Warum der zweite Teil nötig ist: Ein Zugangstoken lebt nur eine Stunde,
 //! Claude Codes Konfiguration kann aber nur einen festen Wert halten. Ohne
 //! einen Prozess, der Token erneuert, wäre die Verbindung nach einer Stunde
-//! tot. Genau deshalb ist der Companion nicht nur ein Einrichtungsprogramm.
+//! tot. Genau deshalb ist die CLI nicht nur ein Einrichtungsprogramm.
 
 mod config;
 mod discovery;
@@ -29,30 +29,30 @@ mod sync;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-AI Brain Companion
+AI Brain CLI
 
 Aufrufe:
-  ai-brain-companion connect [domain]   Rechner mit einer AI-Brain-Instanz verbinden
-                                        (ohne Angabe: die Instanz, von der dieses
-                                        Programm kam)
-  ai-brain-companion mcp                Als MCP-Server laufen (startet Claude Code selbst)
-  ai-brain-companion select             Waehlen, welche Eintraege dieser Rechner bekommt
-  ai-brain-companion sync               Skills und Agents aus dem Repository abgleichen
-  ai-brain-companion publish <name>     Einen lokalen Eintrag ins Repository geben
-  ai-brain-companion status             Zeigt die aktuelle Verbindung
-  ai-brain-companion configure          Traegt den MCP-Server in Claude Code und Codex ein
-  ai-brain-companion disconnect         Entfernt die lokale Verbindung
+  ai-brain-cli connect [domain]   Rechner mit einer AI-Brain-Instanz verbinden
+                                  (ohne Angabe: die Instanz, von der dieses
+                                  Programm kam)
+  ai-brain-cli mcp                Als MCP-Server laufen (startet Claude Code selbst)
+  ai-brain-cli select             Waehlen, welche Eintraege dieser Rechner bekommt
+  ai-brain-cli sync               Skills und Agents aus dem Repository abgleichen
+  ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
+  ai-brain-cli status             Zeigt die aktuelle Verbindung
+  ai-brain-cli configure          Traegt den MCP-Server in Claude Code und Codex ein
+  ai-brain-cli disconnect         Entfernt die lokale Verbindung
 
 Beispiel:
-  ai-brain-companion connect brain.proxy.peppermint-digital.com
+  ai-brain-cli connect brain.proxy.peppermint-digital.com
 
 Optionen für `sync`:
   --apply               Änderungen wirklich schreiben (ohne: erst fragen)
   --only <name>         Nur diesen einen Eintrag
   --force               Auch überschreiben, wo lokal geändert wurde
                         (die lokale Fassung wird gesichert)
-  --aufraeumen          Nicht mehr ausgewählte Einträge entfernen — aber nur die,
-                        die der Companion selbst geschrieben hat und die seither
+  --aufraeumen          Nicht mehr ausgewählte Einträge entfernen — aber nur solche,
+                        die die CLI selbst geschrieben hat und die seither
                         unverändert sind
   --ja                  Nicht fragen, sichere Vorgabe nehmen: anwenden ja, aber
                         nichts überschreiben und nichts entfernen. Dafür bleiben
@@ -112,6 +112,11 @@ fn configure_tools() -> Result<(), String> {
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
+
+    // Vor allem anderen: die Ablage des alten Namens herüberholen (#7664).
+    // Steht hier und nicht in `config_dir()`, weil das eine reine
+    // Pfadfunktion ist — ein Seiteneffekt darin würde in jedem Test feuern.
+    config::uebernimm_alte_ablage();
 
     let result = match args.first().map(String::as_str) {
         Some("connect") => pairing::connect(&args[1..]),

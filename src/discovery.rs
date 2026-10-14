@@ -1,11 +1,11 @@
 //! Instanz-Steckbrief lesen.
 //!
-//! Der Companion kennt nur die Domain — sie steckt in der URL, mit der er
+//! Die CLI kennt nur die Domain — sie steckt in der URL, mit der er
 //! installiert wurde. Alles Weitere steht unter `/.well-known/ai-brain`:
 //! wo der MCP-Endpunkt liegt, wo gekoppelt wird, und mit welcher öffentlichen
 //! Client-ID der Device-Flow zu starten ist.
 //!
-//! Damit funktioniert der Companion gegen jede selbstgehostete Instanz, ohne
+//! Damit funktioniert die CLI gegen jede selbstgehostete Instanz, ohne
 //! dass Pfade einkompiliert wären.
 
 use serde::Deserialize;

@@ -1,10 +1,10 @@
 [package]
-name = "ai-brain-companion"
+name = "ai-brain-cli"
 version = "0.1.0"
 edition = "2021"
-description = "Verbindet einen Rechner mit einer AI-Brain-Instanz und stellt deren MCP-Server für Claude Code bereit"
+description = "Verbindet einen Rechner mit einer AI-Brain-Instanz, stellt deren MCP-Server bereit und startet lokale Agentenlaeufe"
 license = "MIT"
-repository = "https://github.com/peppermint-digital/ai-brain-companion"
+repository = "https://github.com/peppermint-digital/ai-brain-cli"
 
 [dependencies]
 ureq = { version = "2.10", features = ["json", "tls"] }

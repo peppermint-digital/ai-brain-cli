@@ -1,4 +1,4 @@
-# AI Brain Companion
+# AI Brain CLI
 
 Verbindet einen Rechner mit einer AI-Brain-Instanz — und stellt deren
 MCP-Server danach für Claude Code bereit.
@@ -9,7 +9,7 @@ Zugangsdaten tippst du nirgends ab; sie wandern nie durch die Zwischenablage.
 ## Was dabei passiert
 
 ```
-Companion                         AI Brain
+ai-brain-cli                         AI Brain
    |                                 |
    |-- Steckbrief lesen ------------>|   /.well-known/ai-brain
    |<-- Endpunkte + Client-ID -------|
@@ -41,11 +41,11 @@ steht der Gerätename, zugerechnet wird die Arbeit dir.
 curl -fsSL https://deine-brain-domain.de/install.sh | sh
 ```
 
-Jede Instanz liefert den Companion selbst aus. Der Vorteil: **Die Domain steckt
+Jede Instanz liefert die CLI selbst aus. Der Vorteil: **Die Domain steckt
 schon im Befehl** — das Skript merkt sie sich, und danach genügt
-`ai-brain-companion connect` ohne Argument.
+`ai-brain-cli connect` ohne Argument.
 
-Ohne AI Brain ist der Companion ohnehin nutzlos; die Instanz ist also sein
+Ohne AI Brain ist die CLI ohnehin nutzlos; die Instanz ist also ihr
 natürlicher Ort. Wer AI Brain selbst betreibt, muss seine Leute damit nicht auf
 ein fremdes Repository schicken.
 
@@ -67,7 +67,7 @@ Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`
 >   rustup target add x86_64-pc-windows-gnu
 >   cp -r /src/. /work/ && rm -rf /work/target
 >   cargo build --release --target x86_64-pc-windows-gnu
->   cp target/x86_64-pc-windows-gnu/release/ai-brain-companion.exe /out/'
+>   cp target/x86_64-pc-windows-gnu/release/ai-brain-cli.exe /out/'
 > ```
 >
 > Dauert etwa 20 Sekunden. `mingw-w64` und Rust sind frei — hier steht keine
@@ -80,7 +80,7 @@ Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`
 ### Von GitHub
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-cli/main/install.sh | sh
 ```
 
 > ⚠️ Aktuell existiert **kein Release**. Das Skript baut deshalb aus dem
@@ -105,13 +105,13 @@ sich selbst — zwei Befehle, ein bis zwei Minuten Rechenzeit:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install --git https://github.com/peppermint-digital/ai-brain-companion
+cargo install --git https://github.com/peppermint-digital/ai-brain-cli
 ```
 
 Danach liegt es in `~/.cargo/bin` und du verbindest wie überall:
 
 ```bash
-ai-brain-companion connect brain.example.com
+ai-brain-cli connect brain.example.com
 ```
 
 Das ist kein Notbehelf, sondern für einen einzelnen Mac der kürzere Weg — er
@@ -123,7 +123,7 @@ Ergebnis auf die Instanz:
 ```bash
 # auf dem Mac
 cargo build --release
-# Datei als ai-brain-companion-aarch64-apple-darwin auf die Instanz bringen,
+# Datei als ai-brain-cli-aarch64-apple-darwin auf die Instanz bringen,
 # dort:  php artisan companion:fetch --von=/pfad/zum/ordner
 ```
 
@@ -138,18 +138,18 @@ irm https://deine-brain-domain.de/install.ps1 | iex
 Wie unter Linux liefert die Instanz das Skript selbst aus, mit ihrer Adresse
 darin. Es holt die `.exe`, **prüft die Prüfsumme aus `/install.json`**, nimmt die
 Herkunftsmarkierung weg (sonst fragt der SmartScreen beim ersten Start nach),
-merkt sich die Adresse unter `%APPDATA%\ai-brain-companion\instanz` und ergänzt
+merkt sich die Adresse unter `%APPDATA%\ai-brain-cli\instanz` und ergänzt
 den PATH — den des **Benutzers**, nicht den des Systems, der bräuchte
 Administratorrechte.
 
-Danach ein neues Terminal öffnen, dann genügt `ai-brain-companion connect` ohne
+Danach ein neues Terminal öffnen, dann genügt `ai-brain-cli connect` ohne
 Argument.
 
 Wenn du die Adresse nicht zur Hand hast, geht auch der Weg über dieses
 Repository — das Skript fragt dann danach und holt den Rest von dort:
 
 ```powershell
-irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-cli/main/install.ps1 | iex
 ```
 
 Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
@@ -157,10 +157,10 @@ Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
 ### Von Hand
 
 ```bash
-git clone https://github.com/peppermint-digital/ai-brain-companion.git
-cd ai-brain-companion
+git clone https://github.com/peppermint-digital/ai-brain-cli.git
+cd ai-brain-cli
 cargo build --release
-install -m 755 target/release/ai-brain-companion ~/.local/bin/
+install -m 755 target/release/ai-brain-cli ~/.local/bin/
 ```
 
 ### Plattformen
@@ -184,23 +184,23 @@ nimmt das Installationsskript die Markierung mit `Unblock-File` weg.
 ## Verbinden
 
 ```bash
-ai-brain-companion connect brain.example.com
+ai-brain-cli connect brain.example.com
 ```
 
-Der Companion zeigt einen Code und eine Adresse. Öffne sie, melde dich an,
+Die CLI zeigt einen Code und eine Adresse. Öffne sie, melde dich an,
 bestätige. Der Browser meldet „Gerät verbunden", das Terminal zeigt:
 
 ```
 Fertig.
   Gerät          : bastian@mein-laptop (linux x86_64)
   Zugerechnet an : Bastian
-  Hinterlegt in  : ~/.config/ai-brain-companion/connection.json
+  Hinterlegt in  : ~/.config/ai-brain-cli/connection.json
   Claude Code    : Eintrag „ai-brain" in ~/.claude.json
 ```
 
 Claude Code neu starten, dann stehen die Werkzeuge bereit.
 
-**Codex wird mitbedient**, falls es installiert ist. Der Companion nutzt dafür
+**Codex wird mitbedient**, falls es installiert ist. Die CLI nutzt dafür
 `codex mcp add` — Codex kennt sein eigenes TOML-Format am besten, und die
 `~/.codex/config.toml` enthält meist schon andere Abschnitte, die kein
 selbstgebauter Schreiber anfassen sollte.
@@ -230,8 +230,8 @@ Stift-Symbol. Neu koppeln ist dafür nicht nötig.
 ## Skills und Agents abgleichen
 
 ```bash
-ai-brain-companion sync           # zeigt nur, was sich ändern würde
-ai-brain-companion sync --apply   # schreibt
+ai-brain-cli sync           # zeigt nur, was sich ändern würde
+ai-brain-cli sync --apply   # schreibt
 ```
 
 Skills landen unter `~/.claude/skills/`, Agents unter `~/.claude/agents/`.
@@ -265,8 +265,8 @@ auf, damit du weißt, dass es ihn gibt — eingerichtet wird er von Hand.
 
 ### Auswahl pro Rechner
 
-Unter „Meine Geräte" legst du fest, was auf diesem Rechner liegen soll. Der
-Companion meldet sich mit seinem Gerätezugang an, die Instanz weiß also, wer
+Unter „Meine Geräte" legst du fest, was auf diesem Rechner liegen soll. Die
+CLI meldet sich mit ihrem Gerätezugang an, die Instanz weiß also, wer
 fragt, und schickt genau diese Auswahl.
 
 Pro Gerät gibt es zwei Betriebsarten:
@@ -282,14 +282,14 @@ entscheidest, was drauf soll, statt 194 Einträge vorgesetzt zu bekommen.
 ### Abgewähltes entfernen
 
 ```bash
-ai-brain-companion sync --apply --aufraeumen
+ai-brain-cli sync --apply --aufraeumen
 ```
 
 Entfernt Einträge, die nicht mehr ausgewählt sind. Aber nur die, die **der
-Companion selbst geschrieben hat** und die seither **unverändert** sind.
+ai-brain-cli selbst geschrieben hat** und die seither **unverändert** sind.
 
 Alles andere bleibt liegen, auch mit `--aufraeumen`: deine Eigenbauten, alles
-was du verändert hast, und alles was er nie angelegt hat. Eine Synchronisation,
+was du verändert hast, und alles was sie nie angelegt hat. Eine Synchronisation,
 die fremde Arbeit löschen kann, ist keine Synchronisation mehr.
 
 Ohne `--aufraeumen` wird nichts entfernt — es wird nur gemeldet.
@@ -297,8 +297,8 @@ Ohne `--aufraeumen` wird nichts entfernt — es wird nur gemeldet.
 ## Etwas zurückgeben
 
 ```bash
-ai-brain-companion publish mein-skill
-ai-brain-companion publish mein-skill --grund "Abschnitt zu X ergänzt"
+ai-brain-cli publish mein-skill
+ai-brain-cli publish mein-skill --grund "Abschnitt zu X ergänzt"
 ```
 
 Nimmt einen Eintrag aus `~/.claude/skills/` oder `~/.claude/agents/` und legt
@@ -315,9 +315,9 @@ Kaputtes hochladen.
 
 ### Wie Änderungen erkannt werden
 
-Der Companion merkt sich beim Schreiben zwei Dinge: die Prüfsumme, die die
-Instanz damals nannte, und einen eigenen Hash über die Dateien, wie er sie
-hingelegt hat. Beim nächsten Lauf vergleicht er den ersten mit der Instanz
+Die CLI merkt sich beim Schreiben zwei Dinge: die Prüfsumme, die die
+Instanz damals nannte, und einen eigenen Hash über die Dateien, wie sie sie
+hingelegt hat. Beim nächsten Lauf vergleicht sie den ersten mit der Instanz
 (hat sich dort etwas getan?) und den zweiten mit der Platte (hat hier jemand
 Hand angelegt?).
 
@@ -329,17 +329,17 @@ ließe alles als „geändert" erscheinen.
 ## Weitere Befehle
 
 ```bash
-ai-brain-companion status            # Zeigt die aktuelle Verbindung
-ai-brain-companion configure         # Trägt den MCP-Server nachträglich ein (Claude + Codex)
-ai-brain-companion disconnect        # Entfernt die lokale Verbindung
-ai-brain-companion mcp               # Läuft als MCP-Server (startet Claude Code selbst)
+ai-brain-cli status            # Zeigt die aktuelle Verbindung
+ai-brain-cli configure         # Trägt den MCP-Server nachträglich ein (Claude + Codex)
+ai-brain-cli disconnect        # Entfernt die lokale Verbindung
+ai-brain-cli mcp               # Läuft als MCP-Server (startet Claude Code selbst)
 ```
 
 `mcp` rufst du nicht von Hand auf — das macht Claude Code. Der Befehl hält die
 Gerätezugangsdaten, besorgt sich damit Zugangstoken, erneuert sie rechtzeitig
 und reicht die Aufrufe an die Instanz weiter.
 
-Genau dafür gibt es den Companion überhaupt als dauerhaft laufendes Programm:
+Genau dafür gibt es die CLI überhaupt als dauerhaft laufendes Programm:
 Ein Zugangstoken lebt eine Stunde, Claude Codes Konfiguration kann aber nur
 einen festen Wert halten. Ohne etwas, das erneuert, wäre die Verbindung nach
 einer Stunde tot.
@@ -348,9 +348,26 @@ einer Stunde tot.
 
 | Datei | Inhalt |
 |---|---|
-| `~/.config/ai-brain-companion/connection.json` | Gerätezugangsdaten, Rechte `0600` |
+| `~/.config/ai-brain-cli/connection.json` | Gerätezugangsdaten, Rechte `0600` |
 | `~/.claude.json` | Eintrag `mcpServers.ai-brain` |
 | `~/.claude.json.vor-companion` | Sicherung, angelegt vor dem ersten Eintrag |
+
+Der Name `vor-companion` ist historisch: Das Programm hiess bis Oktober 2026
+`ai-brain-companion`. Die Datei behaelt ihren Namen, damit auf den verbundenen
+Rechnern keine zweite Sicherung neben der vorhandenen entsteht.
+
+### Umstieg von `ai-brain-companion`
+
+Nichts zu tun. Beim ersten Start holt `ai-brain-cli` die Ablage von
+`~/.config/ai-brain-companion/` herueber — die Verbindung, den Abgleichstand
+und die gesicherten Fassungen — und sagt, dass es das getan hat. Neu koppeln
+ist **nicht** noetig und waere schaedlich: `connect` legte einen zweiten
+Geraetezugang an, derselbe Rechner stuende zweimal unter „Meine Geraete", und
+die Zeiterfassung verteilte sich auf zwei Namen.
+
+Was schon unter dem neuen Namen liegt, bleibt unangetastet. Konnte etwas nicht
+uebernommen werden, bleibt der alte Ordner stehen und das Programm nennt den
+Grund — eine halb umgezogene Ablage waere schlimmer als keine.
 
 `disconnect` entfernt nur die lokale Ablage. Der Gerätezugang besteht auf der
 Instanz weiter — endgültig entziehst du ihn unter „Meine Geräte".
@@ -363,7 +380,7 @@ Die Instanz muss den Kopplungs-Client kennen. Einmalig dort ausführen:
 php artisan mcp:companion-client
 ```
 
-Fehlt er, sagt der Companion genau das — statt in einen OAuth-Fehler zu laufen.
+Fehlt er, sagt die CLI genau das — statt in einen OAuth-Fehler zu laufen.
 
 ## Wenn etwas klemmt
 
@@ -386,7 +403,7 @@ Ein Programm, das auf fremden Rechnern läuft, kann kein Geheimnis hüten. Die
 Berechtigung entsteht nicht durch den Besitz des Programms, sondern durch deine
 Bestätigung im Browser.
 
-Der Token, mit dem der Companion seinen Gerätezugang abholt, wird dabei
+Der Token, mit dem die CLI seinen Gerätezugang abholt, wird dabei
 **verbraucht**. Ein zweiter Versuch mit demselben Token läuft ins Leere.
 
 Bekannte Grenze: Die Gerätezugangsdaten liegen als Datei mit `0600` statt im

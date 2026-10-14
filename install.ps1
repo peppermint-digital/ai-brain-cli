@@ -1,12 +1,12 @@
-# AI Brain Companion — Installation für Windows
+# AI Brain CLI — Installation für Windows
 #
 #   $env:AI_BRAIN_INSTANZ = 'https://brain.example.com'
-#   irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-cli/main/install.ps1 | iex
 #
 # Dieses Skript installiert nichts selbst. Es holt das Installationsskript
 # deiner AI-Brain-Instanz und führt es aus.
 #
-# Warum der Umweg: Ohne AI Brain ist der Companion nutzlos, und die Instanz
+# Warum der Umweg: Ohne AI Brain ist die CLI nutzlos, und die Instanz
 # kennt ihre eigene Adresse — sie kann sie deshalb in ihr Skript schreiben,
 # und `connect` kommt danach ohne Argument aus. Ein Skript aus einem
 # Repository weiß nicht, mit welcher Instanz du dich verbinden willst.
@@ -53,7 +53,7 @@ try {
     Write-Host 'gibt es die Auslieferung noch nicht — dann baust du aus dem'
     Write-Host 'Quelltext (Rust von https://rustup.rs vorausgesetzt):'
     Write-Host ''
-    Write-Host '  cargo install --git https://github.com/peppermint-digital/ai-brain-companion'
+    Write-Host '  cargo install --git https://github.com/peppermint-digital/ai-brain-cli'
     exit 1
 }
 

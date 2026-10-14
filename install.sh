@@ -1,7 +1,7 @@
 #!/bin/sh
-# AI Brain Companion — Installation
+# AI Brain CLI — Installation
 #
-#   curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-companion/main/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-cli/main/install.sh | sh
 #
 # Legt das Programm in ~/.local/bin ab und sorgt dafür, dass dieses
 # Verzeichnis in zsh und bash im PATH liegt. Vorhandene Einträge werden
@@ -12,10 +12,10 @@
 
 set -eu
 
-REPO_URL="https://github.com/peppermint-digital/ai-brain-companion.git"
-BIN_NAME="ai-brain-companion"
+REPO_URL="https://github.com/peppermint-digital/ai-brain-cli.git"
+BIN_NAME="ai-brain-cli"
 INSTALL_DIR="${AI_BRAIN_COMPANION_BIN_DIR:-$HOME/.local/bin}"
-MARKER="# ai-brain-companion: ~/.local/bin in den PATH"
+MARKER="# ai-brain-cli: ~/.local/bin in den PATH"
 
 say() { printf '%s\n' "$*"; }
 warn() { printf '%s\n' "$*" >&2; }
@@ -53,8 +53,8 @@ download_release() {
 
     say "Suche ein gebautes Programm fuer $ziel …"
 
-    url="$(curl -fsSL "https://api.github.com/repos/peppermint-digital/ai-brain-companion/releases/latest" 2>/dev/null \
-        | grep -o "https://[^\"]*ai-brain-companion-${ziel}" \
+    url="$(curl -fsSL "https://api.github.com/repos/peppermint-digital/ai-brain-cli/releases/latest" 2>/dev/null \
+        | grep -o "https://[^\"]*ai-brain-cli-${ziel}" \
         | head -1)"
 
     [ -n "$url" ] || return 1
@@ -62,10 +62,10 @@ download_release() {
     work="$(mktemp -d)"
     trap 'rm -rf "$work"' EXIT INT TERM
 
-    curl -fsSL "$url" -o "$work/ai-brain-companion" || return 1
+    curl -fsSL "$url" -o "$work/ai-brain-cli" || return 1
 
     mkdir -p "$INSTALL_DIR"
-    install -m 755 "$work/ai-brain-companion" "$INSTALL_DIR/$BIN_NAME"
+    install -m 755 "$work/ai-brain-cli" "$INSTALL_DIR/$BIN_NAME"
 
     say "Fertiges Programm uebernommen — kein Bau noetig."
     return 0
@@ -159,7 +159,7 @@ setup_path() {
 
 # ------------------------------------------------------------------ Lauf ----
 
-say "AI Brain Companion — Installation"
+say "AI Brain CLI — Installation"
 say ""
 
 if ! download_release; then
@@ -179,7 +179,7 @@ say ""
 # unter „Meine Geraete", der neue mit der Grundausstattung statt der gepflegten
 # Auswahl, und die Zeiterfassung auf zwei Namen verteilt. Der Austausch des
 # Programms laesst die Verbindung unberuehrt.
-if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/ai-brain-companion/connection.json" ]; then
+if [ -f "${XDG_CONFIG_HOME:-$HOME/.config}/ai-brain-cli/connection.json" ]; then
     say "Dieser Rechner ist bereits verbunden — kein 'connect' noetig."
     say ""
     say "Öffne eine neue Shell (oder:  . ~/.zshrc  bzw.  . ~/.bashrc), dann:"
