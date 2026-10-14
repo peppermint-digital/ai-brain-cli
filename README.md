@@ -359,10 +359,45 @@ hineinzukopieren hiesse, eine zweite Kopie zu pflegen, die veraltet.
 Claude-Code-Sitzung gestarteter Agent für ein Kind davon und schreibt kein
 eigenes Transkript.
 
-**Rechte:** Es wird **kein** `--permission-mode` gesetzt. Der unbeaufsichtigte
-Vollzugriff ist das Ziel, aber er gehört hinter die Verzeichnis-Freigabe — und
-ein Riegel, der nach dem Ding gebaut wird, das er sichern soll, hat nie
-existiert. Bis dahin gelten die Vorgaben des jeweiligen Werkzeugs.
+### Rechte und Grenzen
+
+Drei Stufen, aufsteigend:
+
+| | claude | codex | braucht Freigabe |
+|---|---|---|---|
+| (ohne Schalter) | Vorgaben | Vorgaben | nein |
+| `--schreibend` | `--permission-mode acceptEdits` | `-s workspace-write` | **ja** |
+| `--vollzugriff` | `--permission-mode bypassPermissions` | `--dangerously-bypass-approvals-and-sandbox` | **ja** |
+
+**Gesichert wird nicht „ein Agent läuft", sondern „ein Agent fragt nicht
+mehr".** Ein Lauf ohne Schalter fragt, bevor er etwas tut — damit ist er nicht
+gefährlicher als ein Mensch, der dort `claude` tippt, und er braucht keine
+Freigabe. Das ist Absicht: Ein Riegel, der am Alltag hängenbleibt, wird
+abgeschaltet.
+
+```bash
+ai-brain-cli freigabe                        # was freigegeben ist
+ai-brain-cli freigabe add ~/Development      # mit Unterverzeichnissen
+ai-brain-cli freigabe rm ~/Development
+```
+
+**Ohne Freigabedatei gibt es keinen Vollzugriff — nirgends.** Pfade werden
+aufgelöst, nicht verglichen: `~/frei/../geheim` ist als Zeichenkette etwas
+anderes als `/home/du/geheim`, als Verzeichnis aber dasselbe. Und ein Nachbar
+mit gleichem Namensanfang (`Development-geheim` neben `Development`) gilt nicht
+mit.
+
+Das Heimatverzeichnis oder `/` freizugeben verlangt zusätzlich `--trotzdem` —
+das wären auch `~/.ssh` und die Zugangsdaten dieser CLI.
+
+**Zeitgrenze:** Vorgabe eine Stunde, `--zeitgrenze <sekunden>`, `0` hebt sie
+auf. Ein unbeaufsichtigter Lauf, der hängt, hielte sonst ewig seinen Herzschlag
+und sähe für jeden Leser gesund aus. Beim Erreichen wird der Lauf beendet und
+mit Grund vermerkt.
+
+Eine **Zug-Grenze gibt es nicht**: `claude` kennt kein `--max-turns`. Einen
+Schalter anzubieten, den die Gegenseite nicht hat, wäre ein Versprechen ohne
+Deckung.
 
 Was `--modell ollama` angeht: noch nicht verdrahtet. Der Weg führt über die
 codex-CLI mit eigener Basis-Adresse; bis dahin sagt die CLI das, statt etwas

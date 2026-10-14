@@ -21,6 +21,7 @@
 mod agent;
 mod config;
 mod discovery;
+mod freigabe;
 mod frage;
 mod mcp;
 mod pairing;
@@ -43,6 +44,7 @@ Aufrufe:
   ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-cli agent [...]        Einen Agentenlauf hier starten
   ai-brain-cli agents             Welche Agentenlaeufe hier laufen
+  ai-brain-cli freigabe [...]     Verzeichnisse fuer Laeufe mit mehr Rechten
   ai-brain-cli logs <kennung>     Was ein Lauf geschrieben hat
   ai-brain-cli stop <kennung>     Einen Lauf beenden
   ai-brain-cli status             Zeigt die aktuelle Verbindung
@@ -73,7 +75,13 @@ Optionen für `agent`:
   --projekt <slug>      Projekt, in dem gearbeitet wird
   --modell claude|codex Welche Schleife gemietet wird (Vorgabe: claude)
   --dir <Pfad>          Arbeitsverzeichnis (Vorgabe: das aktuelle)
+  --zeitgrenze <Sek>    Nach dieser Zeit abbrechen (Vorgabe 3600, 0 = keine)
+  --schreibend          Darf Dateien schreiben, ohne zu fragen
+  --vollzugriff         Fragt nichts mehr („God-Mode“)
   --trocken             Nur zeigen, was gestartet wuerde, samt Vorlauf
+
+  --schreibend und --vollzugriff gehen NUR in freigegebenen Verzeichnissen:
+    ai-brain-cli freigabe add ~/Development
 
   Freie Woerter werden der Auftrag: `agent --projekt x \"Changelog schreiben\"`.
 
@@ -140,6 +148,7 @@ fn main() -> ExitCode {
         Some("select") => select::run(&args[1..]),
         Some("publish") => sync::publish(&args[1..]),
         Some("agent") => agent::starten(&args[1..]),
+        Some("freigabe") => freigabe::verwalten(&args[1..]),
         Some("agents") => register::anzeigen(&args[1..]),
         Some("logs") => register::protokoll_zeigen(&args[1..]),
         Some("stop") => register::stoppen(&args[1..]),

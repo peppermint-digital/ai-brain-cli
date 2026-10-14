@@ -24,11 +24,10 @@
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 use std::time::Duration;
 
 use crate::config::{self, Connection};
+use crate::freigabe;
 use crate::mcp;
 use crate::register::{self, NeuerLauf};
 
@@ -52,6 +51,29 @@ const FREMDE_SITZUNGSVARIABLEN: &[&str] = &[
 /// Toleranz des Registers (180 s), damit ein einzelner verpasster Takt den Lauf
 /// nicht als verschwunden abstempelt.
 const HERZSCHLAG_TAKT: Duration = Duration::from_secs(30);
+
+/// Wie lange ein Lauf höchstens dauert, wenn nichts anderes gesagt wird.
+///
+/// Eine Vorgabe und nicht „unbegrenzt": Ein unbeaufsichtigter Lauf, der hängt,
+/// hält sonst ewig seinen Herzschlag und sieht für jeden Leser gesund aus.
+/// Hermes hatte dafür `gateway_timeout: 1800`; eine Stunde ist für eine
+/// Coding-Aufgabe die grosszügigere Wahl. `--zeitgrenze 0` hebt sie auf.
+const ZEITGRENZE_VORGABE: Duration = Duration::from_secs(3600);
+
+/// Wie viel ein Lauf darf.
+///
+/// Die Stufen über `Fragend` brauchen eine Verzeichnis-Freigabe (#7669). Das
+/// ist die ganze Idee des Riegels: Gesichert wird nicht „ein Agent läuft", sondern
+/// „ein Agent fragt nicht mehr".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Rechte {
+    /// Vorgaben des Werkzeugs — es fragt, bevor es etwas tut.
+    Fragend,
+    /// Darf Dateien im Arbeitsbereich schreiben, Shell bleibt gefragt.
+    Schreibend,
+    /// Fragt nichts mehr. Der „God-Mode" aus Idee #493.
+    Vollzugriff,
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Modell {
@@ -90,12 +112,53 @@ impl Modell {
     }
 
     /// Der Aufruf für einen unbeaufsichtigten Lauf.
-    fn befehl(&self, auftrag: &str) -> Vec<String> {
+    ///
+    /// Die Rechte-Schalter sind an `--help` der jeweiligen Werkzeuge abgelesen,
+    /// nicht erfunden: `claude --permission-mode <acceptEdits|bypassPermissions>`
+    /// und `codex exec -s <workspace-write|…> / --dangerously-bypass-approvals-and-sandbox`.
+    ///
+    /// Eine **Zug-Grenze gibt es nicht** — `claude` kennt kein `--max-turns`.
+    /// Deshalb setzt die CLI nur die Zeitgrenze, und zwar selbst. Einen Schalter
+    /// anzubieten, den die Gegenseite nicht hat, wäre ein Versprechen ohne Deckung.
+    fn befehl(&self, auftrag: &str, rechte: Rechte) -> Vec<String> {
         match self {
             // `-p` ist der Druck-/Stapelmodus: ein Auftrag, eine Antwort, kein
             // Terminal nötig.
-            Modell::Claude => vec!["-p".to_string(), auftrag.to_string()],
-            Modell::Codex => vec!["exec".to_string(), auftrag.to_string()],
+            Modell::Claude => {
+                let mut args = vec!["-p".to_string()];
+
+                match rechte {
+                    Rechte::Fragend => {}
+                    Rechte::Schreibend => {
+                        args.push("--permission-mode".to_string());
+                        args.push("acceptEdits".to_string());
+                    }
+                    Rechte::Vollzugriff => {
+                        args.push("--permission-mode".to_string());
+                        args.push("bypassPermissions".to_string());
+                    }
+                }
+
+                args.push(auftrag.to_string());
+                args
+            }
+            Modell::Codex => {
+                let mut args = vec!["exec".to_string()];
+
+                match rechte {
+                    Rechte::Fragend => {}
+                    Rechte::Schreibend => {
+                        args.push("-s".to_string());
+                        args.push("workspace-write".to_string());
+                    }
+                    Rechte::Vollzugriff => {
+                        args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+                    }
+                }
+
+                args.push(auftrag.to_string());
+                args
+            }
         }
     }
 }
@@ -108,6 +171,10 @@ pub struct Auftrag {
     pub task: Option<u64>,
     pub text: Option<String>,
     pub trocken: bool,
+    pub rechte: Rechte,
+    /// `None` heisst: keine Grenze. Vorgabe ist eine Stunde — ein
+    /// unbeaufsichtigter Lauf, der haengt, haelt sonst ewig seinen Herzschlag.
+    pub zeitgrenze: Option<Duration>,
 }
 
 /// Zerlegt die Kommandozeile.
@@ -120,6 +187,8 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
     let mut projekt = None;
     let mut task = None;
     let mut trocken = false;
+    let mut rechte = Rechte::Fragend;
+    let mut zeitgrenze = Some(ZEITGRENZE_VORGABE);
     let mut freie = Vec::new();
 
     let mut i = 0;
@@ -157,6 +226,26 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
                 trocken = true;
                 i += 1;
             }
+            "--schreibend" => {
+                rechte = Rechte::Schreibend;
+                i += 1;
+            }
+            "--vollzugriff" => {
+                rechte = Rechte::Vollzugriff;
+                i += 1;
+            }
+            "--zeitgrenze" => {
+                let roh = wert(i, "--zeitgrenze")?;
+                let sekunden: u64 = roh
+                    .parse()
+                    .map_err(|_| format!("`{roh}` ist keine Zahl in Sekunden."))?;
+                zeitgrenze = if sekunden == 0 {
+                    None
+                } else {
+                    Some(Duration::from_secs(sekunden))
+                };
+                i += 2;
+            }
             sonst if sonst.starts_with("--") => {
                 return Err(format!("Unbekannte Option `{sonst}`."));
             }
@@ -186,6 +275,8 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
             Some(freie.join(" "))
         },
         trocken,
+        rechte,
+        zeitgrenze,
     })
 }
 
@@ -312,6 +403,8 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         eprintln!("Hinweis: {hinweis}");
     }
 
+    rechte_pruefen(&auftrag)?;
+
     // Die Aufgabe kommt aus AI Brain — nur wenn eine Nummer dasteht. Ohne
     // Verbindung ist das ein harter Fehler: Ein Lauf „an Aufgabe #N", der die
     // Aufgabe nicht kennt, arbeitet an etwas Erfundenem.
@@ -326,8 +419,20 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     let text = vorlauf(&auftrag, aufgabe.as_deref());
 
     if auftrag.trocken {
-        println!("Würde starten: {} {:?}", auftrag.modell.programm(), auftrag.modell.befehl("<vorlauf>"));
+        println!(
+            "Würde starten: {} {:?}",
+            auftrag.modell.programm(),
+            auftrag.modell.befehl("<vorlauf>", auftrag.rechte)
+        );
         println!("Verzeichnis  : {}", auftrag.verzeichnis.display());
+        println!("Rechte       : {}", rechte_wort(auftrag.rechte));
+        println!(
+            "Zeitgrenze   : {}",
+            auftrag
+                .zeitgrenze
+                .map(|g| format!("{} s", g.as_secs()))
+                .unwrap_or_else(|| "keine".to_string())
+        );
         println!();
         println!("--- Vorlauf ---");
         print!("{text}");
@@ -354,7 +459,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
 
     let mut befehl = Command::new(auftrag.modell.programm());
     befehl
-        .args(auftrag.modell.befehl(&text))
+        .args(auftrag.modell.befehl(&text, auftrag.rechte))
         .current_dir(&auftrag.verzeichnis)
         .stdin(Stdio::null())
         .stdout(Stdio::from(datei))
@@ -380,26 +485,49 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     println!("  ai-brain-cli agents");
     println!("  ai-brain-cli logs {}", lauf.id);
 
-    let weiter = Arc::new(AtomicBool::new(true));
-    let takt = {
-        let weiter = weiter.clone();
-        let id = lauf.id.clone();
+    // Abfrage-Schleife im Hauptfaden: Lebenszeichen schreiben, Zeitgrenze
+    // durchsetzen, Ende erkennen. In Sekundenscheiben, damit das Ende nicht bis
+    // zum Ablauf eines Taktes wartet — bei 30 s Takt wären das bis zu 30 s
+    // Verzögerung zwischen „fertig" und der Meldung.
+    let beginn = std::time::Instant::now();
+    let mut seit_stempel = Duration::ZERO;
+    let mut abgebrochen = None;
 
-        std::thread::spawn(move || {
-            takt_schleife(&weiter, HERZSCHLAG_TAKT, || {
-                let _ = register::herzschlag(&id);
-            })
-        })
+    let ausgang = loop {
+        match kind.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Err(e) => break Err(e),
+            Ok(None) => {}
+        }
+
+        std::thread::sleep(Duration::from_secs(1));
+        seit_stempel += Duration::from_secs(1);
+
+        match naechste_tat(beginn.elapsed(), seit_stempel, auftrag.zeitgrenze) {
+            Tat::Warten => {}
+            Tat::Stempeln => {
+                seit_stempel = Duration::ZERO;
+                let _ = register::herzschlag(&lauf.id);
+            }
+            Tat::Abbrechen => {
+                let grenze = auftrag.zeitgrenze.map(|g| g.as_secs()).unwrap_or(0);
+                eprintln!("\nZeitgrenze von {grenze} s erreicht — der Lauf wird beendet.");
+
+                // Erst freundlich, dann hart: Ein Agent soll seine Sitzung noch
+                // schliessen können. Wartet man danach nicht, bleibt ein
+                // Zombie, und `agents` zeigte einen Lauf, den es nicht gibt.
+                let _ = kind.kill();
+                abgebrochen = Some(format!("Zeitgrenze von {grenze} s erreicht"));
+
+                break kind.wait();
+            }
+        }
     };
-
-    let ausgang = kind.wait();
-    weiter.store(false, Ordering::Relaxed);
-    let _ = takt.join();
 
     match ausgang {
         Ok(status) => {
             let code = status.code();
-            register::abschliessen(&lauf.id, code, None)?;
+            register::abschliessen(&lauf.id, code, abgebrochen.clone())?;
 
             let mut raus = std::io::stdout();
             let _ = writeln!(
@@ -408,6 +536,10 @@ pub fn starten(args: &[String]) -> Result<(), String> {
                 lauf.id,
                 code.map(|c| format!(" (Code {c})")).unwrap_or_default()
             );
+
+            if let Some(grund) = abgebrochen {
+                return Err(format!("{grund}. Protokoll: ai-brain-cli logs {}", lauf.id));
+            }
 
             if code == Some(0) {
                 Ok(())
@@ -427,37 +559,77 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     }
 }
 
-/// Ruft `stempeln` im Abstand `takt`, bis `weiter` false wird.
-///
-/// Die Tat wird eingespeist, damit die **Taktlogik** prüfbar ist, ohne eine
-/// Ablage und ohne `XDG_STATE_HOME` zu setzen — die Umgebungsvariable gehört
-/// schon dem Register-Test, und zwei Tests, die sich eine Variable teilen,
-/// ziehen sie sich gegenseitig weg.
-///
-/// Es wird in Scheiben geschlafen, nicht einen ganzen Takt: Sonst wartet das
-/// Ende eines Laufs bis zu 30 Sekunden auf diesen Faden, und die Meldung
-/// „beendet" käme eine halbe Minute nach dem Ende.
-fn takt_schleife(weiter: &AtomicBool, takt: Duration, mut stempeln: impl FnMut()) {
-    let scheibe = takt.min(Duration::from_millis(200));
-    let mut gewartet = Duration::ZERO;
-
-    while weiter.load(Ordering::Relaxed) {
-        std::thread::sleep(scheibe);
-        gewartet += scheibe;
-
-        if gewartet >= takt {
-            gewartet = Duration::ZERO;
-
-            // Nach dem Schlafen noch einmal prüfen: Ist der Lauf inzwischen
-            // vorbei, darf kein Lebenszeichen mehr geschrieben werden — das
-            // würde einen abgeschlossenen Lauf wieder frisch aussehen lassen.
-            if !weiter.load(Ordering::Relaxed) {
-                break;
-            }
-
-            stempeln();
-        }
+fn rechte_wort(rechte: Rechte) -> &'static str {
+    match rechte {
+        Rechte::Fragend => "fragend (Vorgaben des Werkzeugs)",
+        Rechte::Schreibend => "schreibend",
+        Rechte::Vollzugriff => "VOLLZUGRIFF — fragt nichts mehr",
     }
+}
+
+/// Der Riegel: Alles über `Fragend` braucht eine Verzeichnis-Freigabe.
+///
+/// Steht hier und nicht erst im Werkzeugaufruf, damit kein Lauf angelegt wird,
+/// den es nicht geben darf — und damit die Meldung sagt, was zu tun ist, statt
+/// nur „nicht erlaubt".
+fn rechte_pruefen(auftrag: &Auftrag) -> Result<(), String> {
+    if auftrag.rechte == Rechte::Fragend {
+        return Ok(());
+    }
+
+    // Aufgelöst vergleichen, nicht als Zeichenkette: `--dir ~/frei/../geheim`
+    // sieht sonst aus wie ein freigegebener Pfad.
+    let verzeichnis = std::fs::canonicalize(&auftrag.verzeichnis)
+        .map_err(|e| format!("{} lässt sich nicht auflösen: {e}", auftrag.verzeichnis.display()))?;
+
+    if freigabe::ist_frei(&verzeichnis) {
+        return Ok(());
+    }
+
+    Err(format!(
+        "{} ist nicht freigegeben — `{}` gibt es dort nicht.\n\n\
+         Ein Lauf ohne diese Schalter fragt, bevor er etwas tut, und braucht \
+         keine Freigabe. Erst wenn er nicht mehr fragt, zählt das Verzeichnis:\n\n  \
+         ai-brain-cli freigabe add {}\n\n\
+         Was freigegeben ist:  ai-brain-cli freigabe",
+        verzeichnis.display(),
+        if auftrag.rechte == Rechte::Vollzugriff {
+            "--vollzugriff"
+        } else {
+            "--schreibend"
+        },
+        verzeichnis.display()
+    ))
+}
+
+/// Was der Aufseher in diesem Augenblick tun soll.
+///
+/// Reine Funktion über Zeiten — damit die **Regeln** prüfbar sind, ohne Fäden,
+/// ohne Schlafen und ohne Ablage. Vorher stand hier eine Schleife mit
+/// eingespeister Tat; die Zeitgrenze braucht ohnehin eine Abfrage-Schleife im
+/// Hauptfaden (`try_wait`), und ein zweiter Faden daneben wäre dann nur noch
+/// eine weitere Stelle, an der etwas schiefgehen kann.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Tat {
+    Warten,
+    Stempeln,
+    Abbrechen,
+}
+
+pub fn naechste_tat(verstrichen: Duration, seit_stempel: Duration, grenze: Option<Duration>) -> Tat {
+    // Die Grenze schlägt den Stempel: Ist die Zeit um, wird nicht erst noch ein
+    // Lebenszeichen für einen Lauf geschrieben, der gleich abgebrochen wird.
+    // Andernfalls stünde im Register ein frisches Lebenszeichen neben dem
+    // Abbruch — und wer das liest, hält den Lauf für gesund.
+    if grenze.is_some_and(|g| verstrichen >= g) {
+        return Tat::Abbrechen;
+    }
+
+    if seit_stempel >= HERZSCHLAG_TAKT {
+        return Tat::Stempeln;
+    }
+
+    Tat::Warten
 }
 
 #[cfg(test)]
@@ -528,6 +700,8 @@ mod tests {
             task: Some(7666),
             text: Some("Register verdrahten".to_string()),
             trocken: false,
+            rechte: Rechte::Fragend,
+            zeitgrenze: Some(ZEITGRENZE_VORGABE),
         };
 
         let text = vorlauf(&auftrag, Some("# Task #7666\nLauf-Register anbinden"));
@@ -548,67 +722,98 @@ mod tests {
     }
 
     #[test]
-    fn takt_schleife_stempelt_im_abstand_und_hoert_sofort_auf() {
-        use std::sync::atomic::AtomicUsize;
+    fn naechste_tat_haelt_die_regeln() {
+        let s = Duration::from_secs;
 
-        let weiter = Arc::new(AtomicBool::new(true));
-        let zaehler = Arc::new(AtomicUsize::new(0));
+        // Normalbetrieb: nichts tun, bis der Takt voll ist.
+        assert_eq!(naechste_tat(s(5), s(5), Some(s(3600))), Tat::Warten);
+        assert_eq!(naechste_tat(s(29), s(29), Some(s(3600))), Tat::Warten);
+        assert_eq!(naechste_tat(s(30), s(30), Some(s(3600))), Tat::Stempeln);
+        assert_eq!(naechste_tat(s(600), s(45), Some(s(3600))), Tat::Stempeln);
 
-        let faden = {
-            let weiter = weiter.clone();
-            let zaehler = zaehler.clone();
+        // Ohne Grenze wird nie abgebrochen, egal wie lange es dauert.
+        assert_eq!(naechste_tat(s(999_999), s(1), None), Tat::Warten);
+        assert_eq!(naechste_tat(s(999_999), s(60), None), Tat::Stempeln);
 
-            std::thread::spawn(move || {
-                takt_schleife(&weiter, Duration::from_millis(50), || {
-                    zaehler.fetch_add(1, Ordering::Relaxed);
-                })
-            })
-        };
+        // Die Grenze greift genau beim Erreichen, nicht erst danach.
+        assert_eq!(naechste_tat(s(60), s(1), Some(s(60))), Tat::Abbrechen);
+        assert_eq!(naechste_tat(s(59), s(1), Some(s(60))), Tat::Warten);
 
-        std::thread::sleep(Duration::from_millis(260));
-        weiter.store(false, Ordering::Relaxed);
+        // Und sie schlägt den Stempel. Sonst stünde im Register ein frisches
+        // Lebenszeichen neben dem Abbruch, und der Lauf sähe gesund aus.
+        assert_eq!(naechste_tat(s(60), s(300), Some(s(60))), Tat::Abbrechen);
+    }
 
-        let vorher = std::time::Instant::now();
-        faden.join().unwrap();
-        let gebraucht = vorher.elapsed();
-
-        let stempel = zaehler.load(Ordering::Relaxed);
-        assert!(
-            stempel >= 3,
-            "in 260 ms bei 50-ms-Takt sollten mehrere Stempel fallen, es waren {stempel}"
+    #[test]
+    fn rechte_setzen_die_abgelesenen_schalter() {
+        // Gegen `--help` der Werkzeuge abgeglichen, nicht aus dem Gedächtnis.
+        let claude = Modell::Claude;
+        assert_eq!(claude.befehl("hi", Rechte::Fragend), vec!["-p", "hi"]);
+        assert_eq!(
+            claude.befehl("hi", Rechte::Schreibend),
+            vec!["-p", "--permission-mode", "acceptEdits", "hi"]
+        );
+        assert_eq!(
+            claude.befehl("hi", Rechte::Vollzugriff),
+            vec!["-p", "--permission-mode", "bypassPermissions", "hi"]
         );
 
-        assert!(
-            gebraucht < Duration::from_millis(400),
-            "der Faden hat {gebraucht:?} zum Beenden gebraucht"
+        let codex = Modell::Codex;
+        assert_eq!(codex.befehl("hi", Rechte::Fragend), vec!["exec", "hi"]);
+        assert_eq!(
+            codex.befehl("hi", Rechte::Schreibend),
+            vec!["exec", "-s", "workspace-write", "hi"]
+        );
+        assert_eq!(
+            codex.befehl("hi", Rechte::Vollzugriff),
+            vec!["exec", "--dangerously-bypass-approvals-and-sandbox", "hi"]
         );
 
-        // Und jetzt die Eigenschaft, auf die es in Produktion ankommt: Das Ende
-        // darf NICHT auf einen ganzen Takt warten. Mit kleinem Takt oben wäre
-        // der Test auch grün, wenn gar nicht in Scheiben geschlafen würde —
-        // deshalb hier ein grosser Takt und ein sofortiges Ende.
-        let weiter = Arc::new(AtomicBool::new(true));
-        let faden = {
-            let weiter = weiter.clone();
+        // Der Auftrag steht IMMER am Ende — stünde er vor einem Schalter,
+        // nähme das Werkzeug ihn als Wert dieses Schalters.
+        for rechte in [Rechte::Fragend, Rechte::Schreibend, Rechte::Vollzugriff] {
+            for modell in [Modell::Claude, Modell::Codex] {
+                let args = modell.befehl("DER-AUFTRAG", rechte);
+                assert_eq!(args.last().unwrap(), "DER-AUFTRAG");
+            }
+        }
+    }
 
-            std::thread::spawn(move || {
-                takt_schleife(&weiter, Duration::from_secs(10), || {
-                    panic!("bei 10-s-Takt darf in dieser Zeit nichts gestempelt werden");
-                })
-            })
-        };
+    #[test]
+    fn vorgaben_sind_vorsichtig() {
+        let a = auftrag_lesen(&["etwas".to_string()], PathBuf::from("/tmp")).unwrap();
 
-        std::thread::sleep(Duration::from_millis(50));
-        weiter.store(false, Ordering::Relaxed);
-
-        let vorher = std::time::Instant::now();
-        faden.join().unwrap();
-
-        assert!(
-            vorher.elapsed() < Duration::from_millis(500),
-            "ohne Scheiben wartet das Ende den ganzen Takt ab — hier {:?}",
-            vorher.elapsed()
+        assert_eq!(
+            a.rechte,
+            Rechte::Fragend,
+            "ohne Schalter darf ein Lauf nicht mehr duerfen als fragen"
         );
+        assert_eq!(
+            a.zeitgrenze,
+            Some(ZEITGRENZE_VORGABE),
+            "ohne Angabe muss eine Grenze gelten — ein haengender Lauf haelt sonst ewig seinen Herzschlag"
+        );
+
+        // Und die Schalter wirken.
+        let a = auftrag_lesen(
+            &["--vollzugriff".to_string(), "x".to_string()],
+            PathBuf::from("/tmp"),
+        )
+        .unwrap();
+        assert_eq!(a.rechte, Rechte::Vollzugriff);
+
+        let a = auftrag_lesen(
+            &["--zeitgrenze".to_string(), "0".to_string(), "x".to_string()],
+            PathBuf::from("/tmp"),
+        )
+        .unwrap();
+        assert_eq!(a.zeitgrenze, None, "0 hebt die Grenze auf");
+
+        assert!(auftrag_lesen(
+            &["--zeitgrenze".to_string(), "bald".to_string()],
+            PathBuf::from("/tmp")
+        )
+        .is_err());
     }
 
     /// Der Fall, der schon zweimal zugeschlagen hat: Ein Agent startet einen
