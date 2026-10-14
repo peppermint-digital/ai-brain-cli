@@ -36,6 +36,9 @@ fn default_expiry() -> u64 {
 struct TokenCache {
     value: String,
     valid_until: Instant,
+    /// Laufzeit laut Instanz, damit die Ablage auf der Platte dieselbe Frist
+    /// benutzt wie der Speicher — sonst laufen zwei Regeln nebeneinander.
+    laufzeit: u64,
 }
 
 pub fn serve() -> Result<(), String> {
@@ -107,10 +110,98 @@ pub fn serve() -> Result<(), String> {
 
 /// Einmalig einen Token holen — für Aufrufe ausserhalb der Dauerschleife
 /// (etwa die Synchronisation), die keinen Zwischenspeicher brauchen.
-pub fn access_token(connection: &Connection) -> Result<String, String> {
-    let mut cache = None;
+/// Abstand zum Ablauf, in Sekunden.
+///
+/// Ein Token, das in einer Sekunde abläuft, ist für einen Aufruf, der gerade
+/// beginnt, schon zu alt — und die Uhren von Rechner und Server stimmen nie
+/// genau.
+const TOKEN_ABSTAND: i64 = 120;
 
-    token(connection, &mut cache)
+#[derive(serde::Serialize, serde::Deserialize)]
+struct TokenAblage {
+    access_token: String,
+    gueltig_bis: i64,
+}
+
+fn token_pfad() -> Option<std::path::PathBuf> {
+    config::config_dir().ok().map(|d| d.join("token.json"))
+}
+
+/// Bis wann ein Token als gültig gelten soll.
+///
+/// Eigene Funktion, damit die Regel prüfbar ist, ohne eine Uhr zu stellen.
+fn ablauf(jetzt: i64, laufzeit: i64) -> i64 {
+    jetzt + (laufzeit - TOKEN_ABSTAND).max(0)
+}
+
+fn jetzt() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+fn token_aus_ablage() -> Option<String> {
+    let roh = std::fs::read_to_string(token_pfad()?).ok()?;
+    let ablage: TokenAblage = serde_json::from_str(&roh).ok()?;
+
+    (ablage.gueltig_bis > jetzt()).then_some(ablage.access_token)
+}
+
+fn token_ablegen(token: &str, laufzeit: u64) -> Option<()> {
+    let pfad = token_pfad()?;
+
+    let inhalt = serde_json::to_string(&TokenAblage {
+        access_token: token.to_string(),
+        gueltig_bis: ablauf(jetzt(), laufzeit as i64),
+    })
+    .ok()?;
+
+    std::fs::write(&pfad, inhalt).ok()?;
+
+    // Die Datei trägt ein Bearer-Token mit einer Stunde Laufzeit. Das Geheimnis
+    // daneben ist stärker, aber das ist kein Grund, dieses offen zu lassen.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&pfad, std::fs::Permissions::from_mode(0o600));
+    }
+
+    Some(())
+}
+
+/// Ein abgelehntes Token aus der Ablage werfen.
+///
+/// Ohne das blieb ein serverseitig ungültig gewordenes Token bis zu einer
+/// Stunde liegen und JEDER Aufruf scheiterte — mit einer Meldung, die nach
+/// einem Fehler der Instanz aussieht.
+pub fn token_verwerfen() {
+    if let Some(pfad) = token_pfad() {
+        let _ = std::fs::remove_file(pfad);
+    }
+}
+
+/// Ein Zugangstoken für einen einzelnen Befehl.
+///
+/// **Über Prozessgrenzen zwischengespeichert, nicht nur im Arbeitsspeicher.**
+/// Der Speicher in {@link serve} hilft nur dem langlebigen Proxy; ein kurzer
+/// Aufruf startet, prägt und endet. Ein Abholer, der alle 30 Sekunden ruft,
+/// erzeugte damit 120 Token pro Stunde — am 14.10.2026 gemessen: 600 bis 760
+/// pro Stunde auf diesem Rechner, weil mehrere Abholer liefen. Jede Prägung
+/// kostet die Instanz knapp eine halbe Sekunde (#7050).
+pub fn access_token(connection: &Connection) -> Result<String, String> {
+    if let Some(token) = token_aus_ablage() {
+        return Ok(token);
+    }
+
+    let mut cache = None;
+    let wert = token(connection, &mut cache)?;
+
+    // Scheitert das Ablegen, ist das kein Grund, den Aufruf abzubrechen — es
+    // kostet nur den nächsten Aufruf eine Prägung.
+    token_ablegen(&wert, cache.as_ref().map_or(3600, |c| c.laufzeit));
+
+    Ok(wert)
 }
 
 /// Holt einen Token und behält ihn, bis er fast abgelaufen ist.
@@ -151,6 +242,7 @@ fn token(connection: &Connection, cache: &mut Option<TokenCache>) -> Result<Stri
     *cache = Some(TokenCache {
         value: token.access_token.clone(),
         valid_until: Instant::now() + lifetime,
+        laufzeit: token.expires_in,
     });
 
     Ok(token.access_token)
@@ -283,6 +375,13 @@ fn forward(connection: &Connection, token: &str, payload: &str) -> Result<Option
         .send_string(payload)
         .map_err(|e| match e {
             ureq::Error::Status(code, resp) => {
+                // Ein abgelehnter Token gehört nicht in die Ablage. Sonst
+                // scheitert jeder weitere Aufruf bis zum Ablauf an demselben
+                // Token, und die Meldung zeigt auf die Instanz.
+                if code == 401 {
+                    token_verwerfen();
+                }
+
                 let body = resp.into_string().unwrap_or_default();
                 format!("Instanz antwortet mit HTTP {code}: {}", body.trim())
             }
@@ -337,6 +436,24 @@ fn respond_with_error(
 
 #[cfg(test)]
 mod tests {
+    use super::{ablauf, TOKEN_ABSTAND};
+
+    #[test]
+    fn ablauf_zieht_den_abstand_ab_und_wird_nie_negativ() {
+        // Eine Stunde Laufzeit, zwei Minuten Abstand: 58 Minuten gueltig.
+        assert_eq!(ablauf(1_000, 3600), 1_000 + 3600 - TOKEN_ABSTAND);
+
+        // Eine Laufzeit KUERZER als der Abstand darf nicht in die
+        // Vergangenheit zeigen — sonst gilt das Token nie und jeder Aufruf
+        // praegt neu, also genau der Zustand, den die Ablage behebt.
+        assert_eq!(ablauf(1_000, 60), 1_000);
+        assert_eq!(ablauf(1_000, 0), 1_000);
+
+        // Und die Grenze selbst: genau der Abstand ergibt sofort ablaufend,
+        // nicht negativ.
+        assert_eq!(ablauf(1_000, TOKEN_ABSTAND), 1_000);
+    }
+
     use super::nutzlast;
 
     /// `nutzlast` war bis zum 14.10.2026 ungetestet — aufgefallen beim
