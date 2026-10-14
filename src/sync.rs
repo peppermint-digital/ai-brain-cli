@@ -196,7 +196,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let connection = config::load()?;
     let token = crate::mcp::access_token(&connection)?;
 
-    let (manifest, weg) = fetch_manifest_beide(&connection, &token)?;
+    let manifest = fetch_manifest(&connection, &token)?;
     let mut state = load_state()?;
     let claude = claude_dir()?;
 
@@ -251,7 +251,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             // Verglichen werden die Dateien selbst, nicht Prüfsummen. Das ist
             // der einzige Vergleich, der über die Sprachgrenze hinweg
             // verlässlich ist.
-            (true, None) => match fetch_item_ueber(&connection, &token, weg, &item.kind, &item.slug) {
+            (true, None) => match fetch_item_ueber(&connection, &token, &item.kind, &item.slug) {
                 Ok(detail) => {
                     if files_match(&target, &detail)? {
                         uebernehmen.push((key.clone(), detail, target.clone()));
@@ -287,7 +287,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     // Lauf denselben Konflikt, der keiner ist, und die echten
                     // gehen darin unter. Der Abruf kostet eine Anfrage, faellt
                     // aber nur im seltenen Konfliktfall an.
-                    (false, false) => match fetch_item_ueber(&connection, &token, weg, &item.kind, &item.slug) {
+                    (false, false) => match fetch_item_ueber(&connection, &token, &item.kind, &item.slug) {
                         Ok(detail) => {
                             if files_match(&target, &detail)? {
                                 uebernehmen.push((key.clone(), detail, target.clone()));
@@ -425,7 +425,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             continue;
         }
 
-        let detail = match fetch_item_ueber(&connection, &token, weg, &item.kind, &item.slug) {
+        let detail = match fetch_item_ueber(&connection, &token, &item.kind, &item.slug) {
             Ok(detail) => detail,
             // Ein Eintrag, der sich nicht holen laesst, darf nicht die
             // restlichen 160 verhindern. Genau das ist passiert: skill/kami
@@ -732,63 +732,16 @@ fn report(plan: &[(ManifestItem, Verdict, PathBuf)]) {
     }
 }
 
-/// Über welchen Weg dieser Lauf mit der Instanz spricht.
+/// Holt einen Eintrag über MCP.
 ///
-/// MCP ist der vorgesehene: Es ist derselbe Kanal und dieselbe Anmeldung wie
-/// für alles andere. Der REST-Weg bleibt als Rückfall für Instanzen, die noch
-/// älter sind als dieses Programm — bei einem offenen Produkt läuft nicht jede
-/// Instanz auf dem Stand von gestern. Der Rückfall passiert sichtbar, nicht
-/// stillschweigend, sonst merkt niemand, dass ein Update aussteht.
-#[derive(Clone, Copy, PartialEq)]
-enum Weg {
-    Mcp,
-    Rest,
-}
-
-/// Holt das Manifest — erst über MCP, sonst über den alten REST-Endpunkt.
-///
-/// Der gewählte Weg gilt danach für den ganzen Lauf: Ein Manifest von hier und
-/// Einträge von dort wären zwar inhaltsgleich, aber die Vermischung verschleierte,
-/// welcher Stand gerade gilt.
-fn fetch_manifest_beide(connection: &Connection, token: &str) -> Result<(Manifest, Weg), String> {
-    let mcp_fehler = match crate::mcp::call_tool(
-        connection,
-        token,
-        "get-repository-manifest-tool",
-        serde_json::json!({}),
-    ) {
-        Ok(wert) => match serde_json::from_value::<Manifest>(wert) {
-            Ok(manifest) => return Ok((manifest, Weg::Mcp)),
-            Err(e) => format!("Manifest über MCP ist unlesbar: {e}"),
-        },
-        Err(e) => e,
-    };
-
-    match fetch_manifest(connection, token) {
-        Ok(manifest) => {
-            println!("Hinweis: Diese Instanz kennt den MCP-Abgleich noch nicht.");
-            println!("         Es wird der aeltere Weg benutzt. Grund: {mcp_fehler}");
-            println!();
-
-            Ok((manifest, Weg::Rest))
-        }
-        // Scheitern beide, ist der MCP-Fehler der aussagekräftigere: Er
-        // beschreibt den Weg, der eigentlich gelten soll.
-        Err(_) => Err(mcp_fehler),
-    }
-}
-
+/// **Nur noch dieser Weg** — siehe {@link fetch_manifest}. Der Rückfall auf
+/// `GET /api/v1/repository/items/{kind}/{slug}` ist am 14.10.2026 entfallen.
 fn fetch_item_ueber(
     connection: &Connection,
     token: &str,
-    weg: Weg,
     kind: &str,
     slug: &str,
 ) -> Result<ItemDetail, String> {
-    if weg == Weg::Rest {
-        return fetch_item(connection, token, kind, slug);
-    }
-
     let wert = crate::mcp::call_tool(
         connection,
         token,
@@ -805,28 +758,26 @@ fn fetch_item_ueber(
     serde_json::from_value(wert).map_err(|e| format!("{kind}/{slug} ist unlesbar: {e}"))
 }
 
+/// Holt das Manifest über MCP.
+///
+/// **Es gibt nur noch diesen Weg.** Bis zum 14.10.2026 stand hier ein Rückfall
+/// auf `GET /api/v1/repository/manifest`, für Instanzen, die den MCP-Abgleich
+/// noch nicht kannten (#3857). Der Rückfall hat zuletzt Schaden angerichtet:
+/// Während die Octane-Worker der Instanz mit gemischten Fassungen liefen,
+/// scheiterte der MCP-Aufruf zeitweise, der Abgleich wich still auf REST aus —
+/// und die Zugriffszahlen auf der alten Route sahen danach aus, als brauche sie
+/// noch jemand. Ein Rückfall, der eine Stoerung ueberdeckt, verlaengert sie.
+///
+/// Scheitert MCP, soll der Lauf scheitern und es sagen.
 fn fetch_manifest(connection: &Connection, token: &str) -> Result<Manifest, String> {
-    let url = format!("{}/api/v1/repository/manifest", connection.base_url);
+    let wert = crate::mcp::call_tool(
+        connection,
+        token,
+        "get-repository-manifest-tool",
+        serde_json::json!({}),
+    )?;
 
-    ureq::get(&url)
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Accept", "application/json")
-        .call()
-        .map_err(|e| format!("Liste nicht abrufbar: {e}"))?
-        .into_json()
-        .map_err(|e| format!("Liste ist unlesbar: {e}"))
-}
-
-fn fetch_item(connection: &Connection, token: &str, kind: &str, slug: &str) -> Result<ItemDetail, String> {
-    let url = format!("{}/api/v1/repository/items/{kind}/{slug}", connection.base_url);
-
-    ureq::get(&url)
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Accept", "application/json")
-        .call()
-        .map_err(|e| format!("{kind}/{slug} nicht abrufbar: {e}"))?
-        .into_json()
-        .map_err(|e| format!("{kind}/{slug} ist unlesbar: {e}"))
+    serde_json::from_value(wert).map_err(|e| format!("Manifest über MCP ist unlesbar: {e}"))
 }
 
 fn write_item(target: &Path, detail: &ItemDetail) -> Result<(), String> {
@@ -1057,6 +1008,16 @@ pub fn publish(args: &[String]) -> Result<(), String> {
     }
 
     let token = crate::mcp::access_token(&connection)?;
+    // LETZTER REST-AUFRUFER (#7685). Der Leseweg ist am 14.10.2026 auf MCP
+    // verengt worden; dieser hier kann noch nicht nachziehen, und das ist
+    // nachgemessen, nicht vermutet: `publish-repository-item-tool` kennt
+    // weder `slug` noch `files` noch `change_reason`. Es legt an, es gleicht
+    // nicht ab — kein Upsert nach (type, slug), kein Ersetzen der Anhaenge,
+    // keine Begruendung in der Versionshistorie.
+    //
+    // Wer diesen Aufruf auf MCP umstellt, ohne das Werkzeug vorher um diese
+    // drei Felder zu erweitern, verliert die Anhaenge STILL: Das Werkzeug
+    // meldet Erfolg, die Dateien fehlen.
     let url = format!("{}/api/v1/repository/items", connection.base_url);
 
     let antwort: serde_json::Value = ureq::post(&url)
