@@ -26,6 +26,7 @@ mod freigabe;
 mod imkr;
 mod frage;
 mod mcp;
+mod nachricht;
 mod pairing;
 mod register;
 mod select;
@@ -49,6 +50,9 @@ Aufrufe:
   ai-brain-cli auftraege          Was AI Brain fuer diesen Rechner bereitlegt
   ai-brain-cli auftrag <nummer>   Einen Auftrag annehmen und abarbeiten
   ai-brain-cli auftrag-melden ..  Ergebnis eines Auftrags nachtragen
+  ai-brain-cli nachricht ..       Nachrichten zwischen imkrs:
+                                  kontakte | senden <person> <text> |
+                                  abholen | bestaetigen <nummer>
   ai-brain-cli freigabe [...]     Verzeichnisse fuer Laeufe mit mehr Rechten
   ai-brain-cli logs <kennung>     Was ein Lauf geschrieben hat
   ai-brain-cli stop <kennung>     Einen Lauf beenden
@@ -161,6 +165,7 @@ fn main() -> ExitCode {
         Some("auftraege") => auftrag::anzeigen(&args[1..]),
         Some("auftrag") => auftrag::annehmen(&args[1..]),
         Some("auftrag-melden") => auftrag::nachmelden(&args[1..]),
+        Some("nachricht") => nachricht::fuehren(&args[1..]),
         Some("logs") => register::protokoll_zeigen(&args[1..]),
         Some("stop") => register::stoppen(&args[1..]),
         Some("status") => config::print_status(),
