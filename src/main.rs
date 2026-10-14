@@ -18,6 +18,7 @@
 //! einen Prozess, der Token erneuert, wäre die Verbindung nach einer Stunde
 //! tot. Genau deshalb ist die CLI nicht nur ein Einrichtungsprogramm.
 
+mod agent;
 mod config;
 mod discovery;
 mod frage;
@@ -40,6 +41,7 @@ Aufrufe:
   ai-brain-cli select             Waehlen, welche Eintraege dieser Rechner bekommt
   ai-brain-cli sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
+  ai-brain-cli agent [...]        Einen Agentenlauf hier starten
   ai-brain-cli agents             Welche Agentenlaeufe hier laufen
   ai-brain-cli logs <kennung>     Was ein Lauf geschrieben hat
   ai-brain-cli stop <kennung>     Einen Lauf beenden
@@ -65,6 +67,15 @@ Optionen für `sync`:
   Am Terminal fragt `sync` vor dem Anwenden und bei jedem strittigen Eintrag
   einzeln (behalten / überschreiben / Unterschied ansehen). Ohne Terminal wird
   NIE gefragt — dann gilt, was an Optionen dasteht.
+
+Optionen für `agent`:
+  --task <N>            Aufgabe aus AI Brain (die Beschreibung wird geholt)
+  --projekt <slug>      Projekt, in dem gearbeitet wird
+  --modell claude|codex Welche Schleife gemietet wird (Vorgabe: claude)
+  --dir <Pfad>          Arbeitsverzeichnis (Vorgabe: das aktuelle)
+  --trocken             Nur zeigen, was gestartet wuerde, samt Vorlauf
+
+  Freie Woerter werden der Auftrag: `agent --projekt x \"Changelog schreiben\"`.
 
 Optionen für `select`:
   --zeigen              Nur anzeigen, nichts fragen und nichts aendern
@@ -128,6 +139,7 @@ fn main() -> ExitCode {
         Some("sync") => sync::run(&args[1..]),
         Some("select") => select::run(&args[1..]),
         Some("publish") => sync::publish(&args[1..]),
+        Some("agent") => agent::starten(&args[1..]),
         Some("agents") => register::anzeigen(&args[1..]),
         Some("logs") => register::protokoll_zeigen(&args[1..]),
         Some("stop") => register::stoppen(&args[1..]),

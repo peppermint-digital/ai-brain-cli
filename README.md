@@ -328,6 +328,48 @@ ließe alles als „geändert" erscheinen.
 
 ## Agentenläufe
 
+```bash
+ai-brain-cli agent --task 7666
+ai-brain-cli agent --projekt ai-brain "Changelog für heute schreiben"
+ai-brain-cli agent --modell codex --dir ~/Development/crm "Tests reparieren"
+ai-brain-cli agent --task 7666 --trocken     # nur zeigen, was passieren würde
+```
+
+Startet einen Agenten auf diesem Rechner, meldet ihn im Register an und
+protokolliert, was er tut.
+
+**Die Schleife ist gemietet, nicht gebaut.** Die CLI ruft `claude -p` bzw.
+`codex exec` auf. Es gibt hier keinen eigenen Modellaufruf, keinen eigenen
+Werkzeug-Dispatch und keine eigene Kontextkürzung — der Claude Agent SDK *ist*
+Claude Code als Bibliothek, und für Codex, Ollama und OpenRouter löst eine
+eigene Schleife ohnehin nichts. Was die CLI beiträgt, ist das, was dem
+gemieteten Agenten fehlt: Kontext aus AI Brain, eine geprüfte Umgebung, ein
+Registereintrag und ein Protokoll.
+
+**Dein eigener Login zählt.** Der Lauf nutzt die Anmeldung, die auf diesem
+Rechner ohnehin gilt — Abo oder `ANTHROPIC_API_KEY`. Es wird kein Token
+weitergereicht und kein Proxy gebraucht.
+
+**Der Vorlauf bleibt kurz.** Der Agent bekommt gesagt, welche Aufgabe gemeint
+ist und dass `/brain` gilt — den Kontext holt er sich selbst über MCP. Alles
+hineinzukopieren hiesse, eine zweite Kopie zu pflegen, die veraltet.
+
+**Sitzungsvariablen werden entfernt.** `CLAUDECODE`, `CLAUDE_CODE_*`,
+`CLAUDE_PID`, `CLAUDE_EFFORT`. Ohne das hält sich ein aus einer laufenden
+Claude-Code-Sitzung gestarteter Agent für ein Kind davon und schreibt kein
+eigenes Transkript.
+
+**Rechte:** Es wird **kein** `--permission-mode` gesetzt. Der unbeaufsichtigte
+Vollzugriff ist das Ziel, aber er gehört hinter die Verzeichnis-Freigabe — und
+ein Riegel, der nach dem Ding gebaut wird, das er sichern soll, hat nie
+existiert. Bis dahin gelten die Vorgaben des jeweiligen Werkzeugs.
+
+Was `--modell ollama` angeht: noch nicht verdrahtet. Der Weg führt über die
+codex-CLI mit eigener Basis-Adresse; bis dahin sagt die CLI das, statt etwas
+anderes zu starten.
+
+### Laufende Läufe ansehen
+
 Die CLI hält mehrere Agentenläufe gleichzeitig und gibt Auskunft über sie.
 
 ```bash

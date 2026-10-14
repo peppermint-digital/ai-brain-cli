@@ -209,6 +209,54 @@ pub fn call_tool(
     serde_json::from_str(text).map_err(|e| format!("Inhalt von {name} ist kein JSON: {e} — {text}"))
 }
 
+/// Wie `call_tool`, gibt aber den Text zurück statt ihn als JSON zu lesen.
+///
+/// Für Werkzeuge, die bewusst Prosa liefern (`get-task-tool` und Verwandte).
+/// Das ist **kein** Bruch der Regel „ein Programm liest keine Prosa": Der Text
+/// wird hier nicht zerlegt, sondern an ein Sprachmodell weitergegeben — und
+/// dafür ist er gemacht. Wer aus so einer Antwort Felder herausziehen will,
+/// braucht ein Bundle-Werkzeug, nicht diese Funktion.
+pub fn call_tool_text(
+    connection: &Connection,
+    token: &str,
+    name: &str,
+    arguments: serde_json::Value,
+) -> Result<String, String> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/call",
+        "params": { "name": name, "arguments": arguments },
+    })
+    .to_string();
+
+    let body = forward(connection, token, &payload)?
+        .ok_or_else(|| format!("Die Instanz hat auf {name} nichts geantwortet."))?;
+
+    let antwort: serde_json::Value = serde_json::from_str(&nutzlast(&body))
+        .map_err(|e| format!("Antwort auf {name} ist unlesbar: {e}"))?;
+
+    if let Some(fehler) = antwort.get("error") {
+        let grund = fehler
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("kein Grund genannt");
+
+        return Err(format!("Die Instanz lehnt {name} ab: {grund}"));
+    }
+
+    let text = antwort
+        .pointer("/result/content/0/text")
+        .and_then(|t| t.as_str())
+        .ok_or_else(|| format!("Antwort auf {name} hat keinen Inhalt."))?;
+
+    if antwort.pointer("/result/isError").and_then(|f| f.as_bool()) == Some(true) {
+        return Err(text.to_string());
+    }
+
+    Ok(text.to_string())
+}
+
 /// Zieht aus der Antwort das JSON heraus.
 ///
 /// Die Instanz darf laut Protokoll auch als Ereignisstrom antworten

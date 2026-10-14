@@ -215,7 +215,7 @@ pub fn disconnect() -> Result<(), String> {
     Ok(())
 }
 
-fn claude_config_path() -> Result<PathBuf, String> {
+pub fn claude_config_path() -> Result<PathBuf, String> {
     Ok(heimat()?.join(".claude.json"))
 }
 
