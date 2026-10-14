@@ -23,6 +23,7 @@ mod discovery;
 mod frage;
 mod mcp;
 mod pairing;
+mod register;
 mod select;
 mod sync;
 
@@ -39,6 +40,9 @@ Aufrufe:
   ai-brain-cli select             Waehlen, welche Eintraege dieser Rechner bekommt
   ai-brain-cli sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
+  ai-brain-cli agents             Welche Agentenlaeufe hier laufen
+  ai-brain-cli logs <kennung>     Was ein Lauf geschrieben hat
+  ai-brain-cli stop <kennung>     Einen Lauf beenden
   ai-brain-cli status             Zeigt die aktuelle Verbindung
   ai-brain-cli configure          Traegt den MCP-Server in Claude Code und Codex ein
   ai-brain-cli disconnect         Entfernt die lokale Verbindung
@@ -124,6 +128,9 @@ fn main() -> ExitCode {
         Some("sync") => sync::run(&args[1..]),
         Some("select") => select::run(&args[1..]),
         Some("publish") => sync::publish(&args[1..]),
+        Some("agents") => register::anzeigen(&args[1..]),
+        Some("logs") => register::protokoll_zeigen(&args[1..]),
+        Some("stop") => register::stoppen(&args[1..]),
         Some("status") => config::print_status(),
         Some("configure") | Some("configure-claude") => configure_tools(),
         Some("disconnect") => config::disconnect(),

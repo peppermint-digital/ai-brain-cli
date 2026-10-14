@@ -326,6 +326,59 @@ nachzurechnen wäre naheliegend, aber zerbrechlich: Zwei Sprachen müssten bis
 aufs letzte Escaping identisch serialisieren, und ein einziger Unterschied
 ließe alles als „geändert" erscheinen.
 
+## Agentenläufe
+
+Die CLI hält mehrere Agentenläufe gleichzeitig und gibt Auskunft über sie.
+
+```bash
+ai-brain-cli agents                  # was hier läuft
+ai-brain-cli agents --json           # dasselbe für Programme
+ai-brain-cli logs <kennung>          # was ein Lauf geschrieben hat
+ai-brain-cli logs <kennung> --zeilen 500
+ai-brain-cli stop <kennung>          # einen Lauf beenden
+```
+
+```
+● laeuft    1760440000-999     claude     #7665    1h06
+✓ fertig    1760436210-8821    codex      ai-brain 4m
+✗ fehler    1760430004-7719    claude     #7612    12m
+              Aufseher verschwunden — kein Lebenszeichen seit 412 s
+```
+
+Vier Zustände: `laeuft`, `wartet` (der Agent hat eine Rückfrage), `fertig`,
+`fehler`.
+
+**Wie ein verschwundener Lauf erkannt wird.** Der Aufseher stempelt im Takt ein
+Lebenszeichen. Bleibt der Stempel länger als drei Minuten stehen, gilt der Lauf
+als verschwunden und erscheint als `fehler` mit Grund. Das ist bewusst nicht
+„läuft der Prozess noch?": Diese Frage braucht entweder eine weitere
+Abhängigkeit oder `/proc`, das es unter macOS nicht gibt — und sie übersieht den
+Fall, dass ein Prozess lebt, aber nichts mehr tut.
+
+**Der Befund wird geschrieben, nicht nur angezeigt.** `agents` korrigiert den
+Zustand in der Datei. Sonst stünde dort für immer „laeuft", und jeder weitere
+Leser — das imkr-Plugin, AI Brain — müsste dieselbe Herleitung nachbauen.
+
+**Was wann verschwindet:** abgeschlossene Läufe nach 14 Tagen samt Protokoll.
+Laufende nie, egal wie alt.
+
+### Wo das liegt
+
+| Pfad | Inhalt |
+|---|---|
+| `${XDG_STATE_HOME:-~/.local/state}/ai-brain-cli/laeufe/<kennung>/lauf.json` | Zustand des Laufs |
+| `…/laeufe/<kennung>/protokoll.txt` | seine Ausgabe |
+
+Unter Windows `%LOCALAPPDATA%\ai-brain-cli\laeufe`.
+
+Bewusst **nicht** in `~/.config`: Dort liegen die Zugangsdaten, das wird
+gesichert und zieht bei einer Umbenennung mit um. Protokolle laufender Agenten
+haben da nichts zu suchen.
+
+Die Kennung ist `<sekunde>-<prozess>`, bei Kollision mit Zusatz. Der Ordner wird
+mit `create_dir` beansprucht — das scheitert, wenn es ihn schon gibt, und ist
+damit auch zwischen zwei Prozessen eindeutig.
+
 ## Weitere Befehle
 
 ```bash
