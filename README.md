@@ -359,6 +359,27 @@ hineinzukopieren hiesse, eine zweite Kopie zu pflegen, die veraltet.
 Claude-Code-Sitzung gestarteter Agent für ein Kind davon und schreibt kein
 eigenes Transkript.
 
+### Was in AI Brain davon ankommt
+
+Jeder Lauf meldet Anfang und Ende als Audit-Eintrag: Projekt, Aufgabe, Modell,
+Verzeichnis, Rechte-Stufe, Weg, Exit-Code, Dauer.
+
+**Person und Gerät muss die CLI dafür nicht mitgeben.** AI Brain nimmt die
+Person aus dem Token und den Gerätenamen aus dem OAuth-Client — bei einem
+Gerätezugang ist der Client-Name der Gerätename. Dieselbe Person an zwei
+Rechnern bleibt damit auseinanderzuhalten.
+
+**Ein fehlgeschlagenes Protokoll hält den Lauf nicht auf.** Die Arbeit passiert
+auf diesem Rechner; ist AI Brain gerade nicht erreichbar, gibt es eine Zeile auf
+stderr und der Lauf läuft. Ohne Verbindung geht `agent` überhaupt — nur `--task`
+verlangt sie, denn ein Lauf „an Aufgabe #N", der die Aufgabe nicht kennt,
+arbeitet an etwas Erfundenem.
+
+**Zeiteinträge werden nicht angelegt.** Ein Agentenlauf ist Maschinenzeit, keine
+Arbeitszeit eines Menschen; automatisch erfasst würde er die Zeiterfassung
+aufblähen und sich mit dem eigenen Timer überlappen. Wer die Zeit haben will,
+trägt sie bewusst ein.
+
 ### In einem imkr-Pane statt als Kindprozess
 
 ```bash

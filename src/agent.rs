@@ -462,6 +462,59 @@ fn mcp_eingetragen() -> bool {
         .is_some()
 }
 
+/// Meldet ein Ereignis des Laufs an AI Brain — bestmöglich, nie blockierend.
+///
+/// **Ein fehlgeschlagenes Protokoll darf den Lauf nicht verhindern.** Die
+/// Arbeit passiert auf diesem Rechner; ist AI Brain gerade nicht erreichbar,
+/// ist das ein Grund für eine Zeile auf stderr, nicht dafür, die Arbeit
+/// abzusagen. Umgekehrt wäre es die Sorte Abhängigkeit, die man später nicht
+/// mehr los wird.
+///
+/// Person und Gerät muss hier niemand mitgeben: Die Person füllt AI Brain aus
+/// dem Token (`BelongsToActingUser`), den Gerätenamen aus dem OAuth-Client.
+fn melden(
+    connection: Option<&Connection>,
+    aktion: &str,
+    projekt: Option<&str>,
+    status: &str,
+    kontext: &str,
+    nutzlast: serde_json::Value,
+    dauer_ms: Option<u64>,
+) {
+    let Some(connection) = connection else {
+        return;
+    };
+
+    let token = match mcp::access_token(connection) {
+        Ok(t) => t,
+        Err(e) => {
+            eprintln!("Hinweis: Lauf nicht an AI Brain gemeldet ({e}).");
+
+            return;
+        }
+    };
+
+    let mut argumente = serde_json::json!({
+        "agent": "ai-brain-cli",
+        "action": aktion,
+        "status": status,
+        "context": kontext,
+        "input": nutzlast,
+    });
+
+    if let Some(projekt) = projekt {
+        argumente["project"] = serde_json::json!(projekt);
+    }
+
+    if let Some(ms) = dauer_ms {
+        argumente["duration_ms"] = serde_json::json!(ms);
+    }
+
+    if let Err(e) = mcp::call_tool_text(connection, &token, "log-agent-action-tool", argumente) {
+        eprintln!("Hinweis: Lauf nicht an AI Brain gemeldet ({e}).");
+    }
+}
+
 /// Holt die Aufgabenbeschreibung aus AI Brain, wenn eine Nummer angegeben ist.
 fn aufgabe_holen(connection: &Connection, task: u64) -> Result<String, String> {
     let token = mcp::access_token(connection)?;
@@ -489,12 +542,24 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     // Die Aufgabe kommt aus AI Brain — nur wenn eine Nummer dasteht. Ohne
     // Verbindung ist das ein harter Fehler: Ein Lauf „an Aufgabe #N", der die
     // Aufgabe nicht kennt, arbeitet an etwas Erfundenem.
-    let aufgabe = match auftrag.task {
-        Some(nummer) => {
-            let connection = config::load()?;
-            Some(aufgabe_holen(&connection, nummer)?)
+    // Die Verbindung einmal laden — für die Aufgabe UND fürs Melden. Ohne
+    // Verbindung läuft der Agent trotzdem: Die Arbeit ist lokal, und ein
+    // Rechner, der gerade nicht an AI Brain hängt, soll nicht stillstehen.
+    // Nur mit `--task` ist sie Pflicht, denn ein Lauf „an Aufgabe #N", der die
+    // Aufgabe nicht kennt, arbeitet an etwas Erfundenem.
+    let connection = match (config::load(), auftrag.task) {
+        (Ok(c), _) => Some(c),
+        (Err(e), Some(_)) => return Err(e),
+        (Err(e), None) => {
+            eprintln!("Hinweis: nicht mit AI Brain verbunden ({e}) — der Lauf wird nicht gemeldet.");
+
+            None
         }
-        None => None,
+    };
+
+    let aufgabe = match (auftrag.task, connection.as_ref()) {
+        (Some(nummer), Some(c)) => Some(aufgabe_holen(c, nummer)?),
+        _ => None,
     };
 
     let text = vorlauf(&auftrag, aufgabe.as_deref());
@@ -538,6 +603,23 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         pid: None,
         pane: None,
     })?;
+
+    melden(
+        connection.as_ref(),
+        "agent_run_started",
+        auftrag.projekt.as_deref(),
+        "success",
+        &format!("Lauf {} ({})", lauf.id, auftrag.modell.wort()),
+        serde_json::json!({
+            "lauf": lauf.id,
+            "modell": auftrag.modell.wort(),
+            "verzeichnis": auftrag.verzeichnis.display().to_string(),
+            "rechte": rechte_wort(auftrag.rechte),
+            "weg": if auftrag.in_imkr { "imkr-pane" } else { "beaufsichtigt" },
+            "task": auftrag.task,
+        }),
+        None,
+    );
 
     // Der imkr-Weg endet hier: Das Pane gehört imkr, nicht uns. Es gibt
     // nichts zu beaufsichtigen, kein Protokoll zu schreiben und keinen
@@ -650,6 +732,25 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         Ok(status) => {
             let code = status.code();
             register::abschliessen(&lauf.id, code, abgebrochen.clone())?;
+
+            melden(
+                connection.as_ref(),
+                "agent_run_finished",
+                auftrag.projekt.as_deref(),
+                if code == Some(0) && abgebrochen.is_none() {
+                    "success"
+                } else {
+                    "error"
+                },
+                &format!("Lauf {} beendet", lauf.id),
+                serde_json::json!({
+                    "lauf": lauf.id,
+                    "exit_code": code,
+                    "grund": abgebrochen,
+                    "task": auftrag.task,
+                }),
+                Some(beginn.elapsed().as_millis() as u64),
+            );
 
             let mut raus = std::io::stdout();
             let _ = writeln!(
