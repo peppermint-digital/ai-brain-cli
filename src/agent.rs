@@ -392,6 +392,23 @@ fn umgebung_pruefen(auftrag: &Auftrag) -> Result<Vec<String>, String> {
         ));
     }
 
+    // `codex exec` verweigert ausserhalb eines Git-Verzeichnisses den Dienst:
+    // „Not inside a trusted directory and --skip-git-repo-check was not
+    // specified." — Exit 1, ohne etwas zu tun. Gefunden beim ersten echten
+    // Codex-Lauf am 14.10.2026 (in einem Repo läuft derselbe Auftrag durch).
+    //
+    // Gemeldet, nicht umgangen: `--skip-git-repo-check` wäre ein Riegel, den
+    // wir für den Nutzer wegklicken — dieselbe Entscheidung wie bei der
+    // Vertrauensabfrage von Claude Code, und sie gehört ihm.
+    if auftrag.modell == Modell::Codex && !ist_git_verzeichnis(&auftrag.verzeichnis) {
+        hinweise.push(format!(
+            "{} ist kein Git-Verzeichnis — `codex exec` bricht dort mit „Not inside a \
+             trusted directory\" ab, ohne etwas zu tun. Nimm ein Repository, oder \
+             `--modell claude`.",
+            auftrag.verzeichnis.display()
+        ));
+    }
+
     if auftrag.in_imkr && verzeichnis_vertraut(&auftrag.verzeichnis) != Some(true) {
         hinweise.push(format!(
             "{} ist in Claude Code noch nicht als vertrauenswürdig vermerkt — das Pane \
@@ -421,6 +438,18 @@ fn umgebung_pruefen(auftrag: &Auftrag) -> Result<Vec<String>, String> {
     }
 
     Ok(hinweise)
+}
+
+/// Liegt das Verzeichnis in einem Git-Arbeitsbaum?
+fn ist_git_verzeichnis(verzeichnis: &Path) -> bool {
+    Command::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .current_dir(verzeichnis)
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 /// Hat Claude Code dieses Verzeichnis schon als vertrauenswürdig vermerkt?

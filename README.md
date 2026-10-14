@@ -458,6 +458,11 @@ Eine **Zug-Grenze gibt es nicht**: `claude` kennt kein `--max-turns`. Einen
 Schalter anzubieten, den die Gegenseite nicht hat, wäre ein Versprechen ohne
 Deckung.
 
+**`codex exec` braucht ein Git-Verzeichnis.** Ausserhalb bricht es mit „Not
+inside a trusted directory" ab, ohne etwas zu tun. Die CLI prüft das vorher und
+sagt es — umgangen wird es nicht (`--skip-git-repo-check` wäre ein Riegel, den
+wir für dich wegklicken).
+
 Was `--modell ollama` angeht: noch nicht verdrahtet. Der Weg führt über die
 codex-CLI mit eigener Basis-Adresse; bis dahin sagt die CLI das, statt etwas
 anderes zu starten.
