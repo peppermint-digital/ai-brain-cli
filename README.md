@@ -359,6 +359,44 @@ hineinzukopieren hiesse, eine zweite Kopie zu pflegen, die veraltet.
 Claude-Code-Sitzung gestarteter Agent für ein Kind davon und schreibt kein
 eigenes Transkript.
 
+### In einem imkr-Pane statt als Kindprozess
+
+```bash
+ai-brain-cli agent --imkr --task 7667
+```
+
+Ein beaufsichtigter Lauf ist ein Kindprozess: Die CLI hält ihn, schreibt sein
+Protokoll, stempelt seinen Herzschlag. Richtig für unbeaufsichtigte Arbeit —
+aber man kann ihm nicht zusehen und nichts hineinrufen.
+
+Mit `--imkr` startet der Lauf **interaktiv in einem neuen imkr-Fenster**. Dann
+gilt:
+
+| | beaufsichtigt | `--imkr` |
+|---|---|---|
+| Protokoll | `protokoll.txt` | der Schirm (`logs` zeigt ihn) |
+| Zustand | Herzschlag der CLI | von imkr (`imkr status`-Hooks) |
+| Zusehen, mitreden | nein | `imkr read`, `imkr msg` |
+| Zeitgrenze | ja | nein (das Pane gehört imkr) |
+
+Die CLI baut davon **nichts** nach. Was imkr kann — Panes, Agentenzustand,
+Nachrichten zwischen Agenten, Übersicht über mehrere Rechner — bleibt bei imkr.
+
+**imkr ist optional.** Ohne imkr fehlt nur diese Betriebsart. `imkr new`
+startet allerdings keine Sitzung: `--imkr` geht nur aus einer laufenden
+imkr-Sitzung heraus, und wer es von aussen versucht, bekommt das gesagt.
+
+**Ein Pane in einem unbekannten Verzeichnis fragt erst nach Vertrauen.** Claude
+Code tut das beim ersten Mal; im Druckmodus (`-p`) passiert es nicht, in einem
+Pane schon. Die CLI sagt das vorher — und beantwortet die Frage nicht für dich.
+Ein Flag in deine Konfiguration zu schreiben, um eine Sicherheitsabfrage
+wegzuklicken, ist keine Bequemlichkeit.
+
+Solange dort etwas fragt, meldet `agents` den Lauf als `wartet` mit Grund — und
+**nicht** als `fertig`. Das ist nicht selbstverständlich: imkr meldet ein Pane,
+das an einem Dialog hängt, als `done`. Ein Lauf gilt erst dann als fertig, wenn
+er vorher gearbeitet hat.
+
 ### Rechte und Grenzen
 
 Drei Stufen, aufsteigend:

@@ -22,7 +22,7 @@
 //! Werkzeugs.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
@@ -111,6 +111,38 @@ impl Modell {
         }
     }
 
+    /// Der Aufruf für ein Pane: **interaktiv**, mit dem Vorlauf als Argument.
+    ///
+    /// Kein `-p`: Ein Pane ist zum Zusehen und Mitreden da. Mit `-p` wäre die
+    /// Antwort gedruckt und das Pane sofort wieder zu — dann hätte der Umweg
+    /// über imkr keinen Sinn. Beide Werkzeuge nehmen einen Start-Auftrag als
+    /// Argument (`claude [options] [prompt]`, `codex [OPTIONS] [PROMPT]`).
+    fn befehl_interaktiv(&self, auftrag: &str, rechte: Rechte) -> Vec<String> {
+        let mut args = Vec::new();
+
+        match (self, rechte) {
+            (_, Rechte::Fragend) => {}
+            (Modell::Claude, Rechte::Schreibend) => {
+                args.push("--permission-mode".to_string());
+                args.push("acceptEdits".to_string());
+            }
+            (Modell::Claude, Rechte::Vollzugriff) => {
+                args.push("--permission-mode".to_string());
+                args.push("bypassPermissions".to_string());
+            }
+            (Modell::Codex, Rechte::Schreibend) => {
+                args.push("-s".to_string());
+                args.push("workspace-write".to_string());
+            }
+            (Modell::Codex, Rechte::Vollzugriff) => {
+                args.push("--dangerously-bypass-approvals-and-sandbox".to_string());
+            }
+        }
+
+        args.push(auftrag.to_string());
+        args
+    }
+
     /// Der Aufruf für einen unbeaufsichtigten Lauf.
     ///
     /// Die Rechte-Schalter sind an `--help` der jeweiligen Werkzeuge abgelesen,
@@ -172,6 +204,8 @@ pub struct Auftrag {
     pub text: Option<String>,
     pub trocken: bool,
     pub rechte: Rechte,
+    /// Lauf in einem imkr-Pane statt als beaufsichtigter Kindprozess (#7667).
+    pub in_imkr: bool,
     /// `None` heisst: keine Grenze. Vorgabe ist eine Stunde — ein
     /// unbeaufsichtigter Lauf, der haengt, haelt sonst ewig seinen Herzschlag.
     pub zeitgrenze: Option<Duration>,
@@ -188,6 +222,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
     let mut task = None;
     let mut trocken = false;
     let mut rechte = Rechte::Fragend;
+    let mut in_imkr = false;
     let mut zeitgrenze = Some(ZEITGRENZE_VORGABE);
     let mut freie = Vec::new();
 
@@ -224,6 +259,10 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
             }
             "--trocken" | "--dry-run" => {
                 trocken = true;
+                i += 1;
+            }
+            "--imkr" | "--pane" => {
+                in_imkr = true;
                 i += 1;
             }
             "--schreibend" => {
@@ -276,6 +315,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
         },
         trocken,
         rechte,
+        in_imkr,
         zeitgrenze,
     })
 }
@@ -352,6 +392,23 @@ fn umgebung_pruefen(auftrag: &Auftrag) -> Result<Vec<String>, String> {
         ));
     }
 
+    if auftrag.in_imkr && verzeichnis_vertraut(&auftrag.verzeichnis) != Some(true) {
+        hinweise.push(format!(
+            "{} ist in Claude Code noch nicht als vertrauenswürdig vermerkt — das Pane \
+             wird zuerst danach fragen und bis dahin nichts tun. Einmal dort bestätigen, \
+             dann läuft es.",
+            auftrag.verzeichnis.display()
+        ));
+    }
+
+    if auftrag.in_imkr && !crate::imkr::verfuegbar() {
+        return Err(
+            "`--imkr` verlangt imkr, das hier nicht aufrufbar ist. Ohne den Schalter \
+             läuft derselbe Auftrag als beaufsichtigter Lauf mit Protokoll."
+                .to_string(),
+        );
+    }
+
     // Ohne MCP-Eintrag läuft der Agent ohne AI-Brain-Werkzeuge. Das ist kein
     // Abbruchgrund — aber er muss es wissen, sonst wundert er sich über einen
     // Agenten, der seinen Kontext nicht findet.
@@ -364,6 +421,30 @@ fn umgebung_pruefen(auftrag: &Auftrag) -> Result<Vec<String>, String> {
     }
 
     Ok(hinweise)
+}
+
+/// Hat Claude Code dieses Verzeichnis schon als vertrauenswürdig vermerkt?
+///
+/// Gefunden bei der ersten Pane-Probe: In einem unbekannten Verzeichnis fragt
+/// Claude Code zuerst „Is this a project you trust?". Im Druckmodus (`-p`)
+/// passiert das nicht, in einem Pane schon — und dort hängt der Lauf dann an
+/// einem Dialog, während imkr `done` meldet.
+///
+/// Wir **beantworten** die Frage ausdrücklich nicht. Eine
+/// Sicherheitsabfrage für jemand anderen wegzuklicken, indem man ihm ein Flag
+/// in die Konfiguration schreibt, ist keine Bequemlichkeit, sondern eine
+/// Entscheidung, die ihm gehört. Wir sagen nur Bescheid, dass sie kommt.
+fn verzeichnis_vertraut(verzeichnis: &Path) -> Option<bool> {
+    let pfad = config::claude_config_path().ok()?;
+    let roh = std::fs::read_to_string(pfad).ok()?;
+    let wert: serde_json::Value = serde_json::from_str(&roh).ok()?;
+
+    let eintrag = wert
+        .get("projects")?
+        .get(verzeichnis.to_str()?)?
+        .get("hasTrustDialogAccepted")?;
+
+    Some(eintrag.as_bool().unwrap_or(false))
 }
 
 fn mcp_eingetragen() -> bool {
@@ -427,6 +508,14 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         println!("Verzeichnis  : {}", auftrag.verzeichnis.display());
         println!("Rechte       : {}", rechte_wort(auftrag.rechte));
         println!(
+            "Weg          : {}",
+            if auftrag.in_imkr {
+                "imkr-Pane (interaktiv, Zustand von imkr)"
+            } else {
+                "beaufsichtigt (Kindprozess, Protokoll, Herzschlag)"
+            }
+        );
+        println!(
             "Zeitgrenze   : {}",
             auftrag
                 .zeitgrenze
@@ -449,6 +538,39 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         pid: None,
         pane: None,
     })?;
+
+    // Der imkr-Weg endet hier: Das Pane gehört imkr, nicht uns. Es gibt
+    // nichts zu beaufsichtigen, kein Protokoll zu schreiben und keinen
+    // Herzschlag zu stempeln — den Zustand liefert imkr, und `logs` zeigt den
+    // Schirm statt einer Datei. Würden wir trotzdem hier warten, hielte die
+    // CLI ein Terminal fest, das niemand braucht.
+    if auftrag.in_imkr {
+        let args = auftrag.modell.befehl_interaktiv(&text, auftrag.rechte);
+
+        match crate::imkr::pane_starten(&auftrag.verzeichnis, auftrag.modell.programm(), &args) {
+            Ok(adresse) => {
+                let mut mit_pane = register::lesen(&lauf.id)?;
+                mit_pane.pane = Some(adresse.clone());
+                register::schreiben(&mit_pane)?;
+
+                println!("Lauf {} läuft in Pane {adresse}.", lauf.id);
+                println!("  Verzeichnis : {}", auftrag.verzeichnis.display());
+                println!();
+                println!("  imkr read {adresse}");
+                println!("  imkr msg {adresse} \"...\"");
+                println!("  ai-brain-cli agents");
+
+                return Ok(());
+            }
+            Err(e) => {
+                // Der Lauf ist schon angelegt — ohne diesen Abschluss bliebe er
+                // für immer auf „laeuft" stehen, obwohl nie etwas startete.
+                register::abschliessen(&lauf.id, None, Some(e.clone()))?;
+
+                return Err(e);
+            }
+        }
+    }
 
     let protokoll = register::protokoll_pfad(&lauf.id)?;
     let datei = std::fs::File::create(&protokoll)
@@ -701,6 +823,7 @@ mod tests {
             text: Some("Register verdrahten".to_string()),
             trocken: false,
             rechte: Rechte::Fragend,
+            in_imkr: false,
             zeitgrenze: Some(ZEITGRENZE_VORGABE),
         };
 
@@ -777,6 +900,48 @@ mod tests {
                 assert_eq!(args.last().unwrap(), "DER-AUFTRAG");
             }
         }
+    }
+
+    #[test]
+    fn imkr_weg_ist_interaktiv_und_optional() {
+        // Vorgabe ist der beaufsichtigte Weg.
+        let a = auftrag_lesen(&["x".to_string()], PathBuf::from("/tmp")).unwrap();
+        assert!(!a.in_imkr);
+
+        let a = auftrag_lesen(
+            &["--imkr".to_string(), "x".to_string()],
+            PathBuf::from("/tmp"),
+        )
+        .unwrap();
+        assert!(a.in_imkr);
+
+        // Der Pane-Aufruf darf KEIN -p tragen: Mit -p waere die Antwort
+        // gedruckt und das Pane sofort wieder zu — dann hat der Umweg über
+        // imkr keinen Sinn.
+        for modell in [Modell::Claude, Modell::Codex] {
+            let args = modell.befehl_interaktiv("AUFTRAG", Rechte::Vollzugriff);
+
+            assert!(
+                !args.contains(&"-p".to_string()),
+                "interaktiv darf nicht -p setzen: {args:?}"
+            );
+            assert!(
+                !args.contains(&"exec".to_string()),
+                "interaktiv darf nicht `exec` setzen: {args:?}"
+            );
+            assert_eq!(args.last().unwrap(), "AUFTRAG");
+        }
+
+        // Die Rechte gelten auf beiden Wegen gleich.
+        assert_eq!(
+            Modell::Claude.befehl_interaktiv("x", Rechte::Vollzugriff),
+            vec!["--permission-mode", "bypassPermissions", "x"]
+        );
+        assert_eq!(
+            Modell::Codex.befehl_interaktiv("x", Rechte::Schreibend),
+            vec!["-s", "workspace-write", "x"]
+        );
+        assert_eq!(Modell::Claude.befehl_interaktiv("x", Rechte::Fragend), vec!["x"]);
     }
 
     #[test]

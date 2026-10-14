@@ -106,6 +106,18 @@ pub struct Lauf {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pane: Option<String>,
 
+    /// Hat imkr dieses Pane je als arbeitend gesehen?
+    ///
+    /// Gefunden am 14.10.2026 bei der ersten echten Probe: Claude Code fragt in
+    /// einem unbekannten Verzeichnis zuerst nach Vertrauen. Das Pane hängt dann
+    /// an einem Dialog, imkr meldet `done` — und daraus wurde `fertig`, obwohl
+    /// nie etwas gelaufen ist. Ein stiller Falschbefund, und der schlimmste:
+    /// Er sieht wie ein Erfolg aus.
+    ///
+    /// Also gilt `ruht` erst als „fertig", wenn es vorher `arbeitet` war.
+    #[serde(default)]
+    pub jemals_gearbeitet: bool,
+
     pub gestartet: u64,
     pub zuletzt_gesehen: u64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -211,6 +223,7 @@ pub fn anlegen(neu: NeuerLauf) -> Result<Lauf, String> {
         beendet: None,
         exit_code: None,
         grund: None,
+        jemals_gearbeitet: false,
     };
 
     schreiben(&lauf)?;
@@ -337,14 +350,40 @@ pub fn liste() -> Result<Vec<Lauf>, String> {
             continue;
         };
 
-        if !lauf.zustand.abgeschlossen() && nun.saturating_sub(lauf.zuletzt_gesehen) > HERZSCHLAG_TOLERANZ {
-            lauf.zustand = Zustand::Fehler;
-            lauf.beendet = Some(lauf.zuletzt_gesehen);
-            lauf.grund = Some(format!(
-                "Aufseher verschwunden — kein Lebenszeichen seit {} s",
-                nun.saturating_sub(lauf.zuletzt_gesehen)
-            ));
-            let _ = schreiben(&lauf);
+        if !lauf.zustand.abgeschlossen() {
+            // Ein Lauf in einem imkr-Pane hat keinen Aufseher, also auch keinen
+            // Herzschlag. Würde hier die Verschwunden-Regel greifen, wäre jeder
+            // Pane-Lauf nach drei Minuten „fehler", obwohl er arbeitet. Also
+            // fragen wir den, der es weiss.
+            if let Some(adresse) = lauf.pane.clone() {
+                let (zustand, grund) = aus_pane_zustand(
+                    crate::imkr::zustand(&adresse),
+                    lauf.jemals_gearbeitet,
+                    &adresse,
+                );
+
+                if zustand == Zustand::Laeuft {
+                    lauf.jemals_gearbeitet = true;
+                }
+
+                if zustand.abgeschlossen() && lauf.beendet.is_none() {
+                    lauf.beendet = Some(nun);
+                }
+
+                lauf.zustand = zustand;
+                lauf.grund = grund;
+
+                lauf.zuletzt_gesehen = nun;
+                let _ = schreiben(&lauf);
+            } else if nun.saturating_sub(lauf.zuletzt_gesehen) > HERZSCHLAG_TOLERANZ {
+                lauf.zustand = Zustand::Fehler;
+                lauf.beendet = Some(lauf.zuletzt_gesehen);
+                lauf.grund = Some(format!(
+                    "Aufseher verschwunden — kein Lebenszeichen seit {} s",
+                    nun.saturating_sub(lauf.zuletzt_gesehen)
+                ));
+                let _ = schreiben(&lauf);
+            }
         }
 
         let zu_alt = lauf
@@ -363,6 +402,40 @@ pub fn liste() -> Result<Vec<Lauf>, String> {
     laeufe.sort_by_key(|l| std::cmp::Reverse(l.gestartet));
 
     Ok(laeufe)
+}
+
+/// Übersetzt den Pane-Zustand in einen Lauf-Zustand.
+///
+/// Reine Funktion, damit die **Regel** prüfbar ist, ohne laufendes imkr — und
+/// die Regel ist der Punkt: `ruht` heisst nur dann „fertig", wenn das Pane
+/// vorher gearbeitet hat.
+///
+/// Gefunden bei der ersten echten Probe am 14.10.2026: Claude Code fragt in
+/// einem unbekannten Verzeichnis zuerst nach Vertrauen. Das Pane hing an dem
+/// Dialog, imkr meldete `done`, und das Register sagte `fertig` — ein stiller
+/// Falschbefund, und der schlimmste von allen, weil er wie ein Erfolg aussieht.
+pub fn aus_pane_zustand(
+    pane: crate::imkr::PaneZustand,
+    jemals_gearbeitet: bool,
+    adresse: &str,
+) -> (Zustand, Option<String>) {
+    use crate::imkr::PaneZustand;
+
+    match pane {
+        PaneZustand::Arbeitet => (Zustand::Laeuft, None),
+        PaneZustand::Wartet => (Zustand::Wartet, None),
+        PaneZustand::Ruht if jemals_gearbeitet => (Zustand::Fertig, None),
+        PaneZustand::Ruht => (
+            Zustand::Wartet,
+            Some(format!(
+                "Pane {adresse} hat nie gearbeitet — sieh nach, ob dort etwas fragt: imkr read {adresse}"
+            )),
+        ),
+        PaneZustand::Weg => (
+            Zustand::Fehler,
+            Some(format!("Pane {adresse} gibt es nicht mehr")),
+        ),
+    }
 }
 
 /// Beendet den Prozess eines Laufs.
@@ -494,6 +567,19 @@ pub fn protokoll_zeigen(args: &[String]) -> Result<(), String> {
     }
 
     println!();
+
+    // Ein Pane-Lauf schreibt kein Protokoll — sein Schirm IST das Protokoll.
+    if let Some(adresse) = &lauf.pane {
+        println!("Pane: {adresse}");
+        println!();
+
+        match crate::imkr::schirm(adresse, zeilen) {
+            Ok(inhalt) => print!("{inhalt}"),
+            Err(e) => println!("(Schirm nicht lesbar: {e})"),
+        }
+
+        return Ok(());
+    }
 
     match fs::read_to_string(&pfad) {
         Ok(inhalt) => {
@@ -647,6 +733,37 @@ mod tests {
         assert_ne!(a.id, b.id, "zwei Läufe in einer Sekunde brauchen zwei Kennungen");
         assert!(lesen(&a.id).is_ok(), "der erste Lauf darf nicht überschrieben sein");
         assert!(lesen(&b.id).is_ok());
+
+        // Die Regel für Pane-Läufe: `ruht` heisst nur dann fertig, wenn vorher
+        // gearbeitet wurde. Sonst hing das Pane an einem Dialog und das
+        // Register meldete einen Erfolg, den es nie gab.
+        use crate::imkr::PaneZustand;
+
+        assert_eq!(
+            aus_pane_zustand(PaneZustand::Ruht, true, "s/1").0,
+            Zustand::Fertig
+        );
+
+        let (zustand, grund) = aus_pane_zustand(PaneZustand::Ruht, false, "s/1");
+        assert_eq!(
+            zustand,
+            Zustand::Wartet,
+            "ohne vorherige Arbeit darf `ruht` nicht als fertig gelten"
+        );
+        assert!(grund.unwrap().contains("nie gearbeitet"));
+
+        assert_eq!(
+            aus_pane_zustand(PaneZustand::Arbeitet, false, "s/1").0,
+            Zustand::Laeuft
+        );
+        assert_eq!(
+            aus_pane_zustand(PaneZustand::Wartet, true, "s/1").0,
+            Zustand::Wartet
+        );
+
+        let (zustand, grund) = aus_pane_zustand(PaneZustand::Weg, true, "s/1");
+        assert_eq!(zustand, Zustand::Fehler);
+        assert!(grund.unwrap().contains("gibt es nicht mehr"));
 
         // Pfad-Einschleusung über die Kennung muss scheitern, nicht lesen.
         assert!(lesen("../../etc/passwd").is_err());

@@ -22,6 +22,7 @@ mod agent;
 mod config;
 mod discovery;
 mod freigabe;
+mod imkr;
 mod frage;
 mod mcp;
 mod pairing;
@@ -75,6 +76,7 @@ Optionen für `agent`:
   --projekt <slug>      Projekt, in dem gearbeitet wird
   --modell claude|codex Welche Schleife gemietet wird (Vorgabe: claude)
   --dir <Pfad>          Arbeitsverzeichnis (Vorgabe: das aktuelle)
+  --imkr                In einem neuen imkr-Fenster statt als Kindprozess
   --zeitgrenze <Sek>    Nach dieser Zeit abbrechen (Vorgabe 3600, 0 = keine)
   --schreibend          Darf Dateien schreiben, ohne zu fragen
   --vollzugriff         Fragt nichts mehr („God-Mode“)
