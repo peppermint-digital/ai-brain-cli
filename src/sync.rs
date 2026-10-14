@@ -1008,38 +1008,25 @@ pub fn publish(args: &[String]) -> Result<(), String> {
     }
 
     let token = crate::mcp::access_token(&connection)?;
-    // LETZTER REST-AUFRUFER (#7685). Der Leseweg ist am 14.10.2026 auf MCP
-    // verengt worden; dieser hier kann noch nicht nachziehen, und das ist
-    // nachgemessen, nicht vermutet: `publish-repository-item-tool` kennt
-    // weder `slug` noch `files` noch `change_reason`. Es legt an, es gleicht
-    // nicht ab — kein Upsert nach (type, slug), kein Ersetzen der Anhaenge,
-    // keine Begruendung in der Versionshistorie.
-    //
-    // Wer diesen Aufruf auf MCP umstellt, ohne das Werkzeug vorher um diese
-    // drei Felder zu erweitern, verliert die Anhaenge STILL: Das Werkzeug
-    // meldet Erfolg, die Dateien fehlen.
-    let url = format!("{}/api/v1/repository/items", connection.base_url);
 
-    let antwort: serde_json::Value = ureq::post(&url)
-        .set("Authorization", &format!("Bearer {token}"))
-        .set("Accept", "application/json")
-        .send_json(serde_json::json!({
+    // Seit 15.10.2026 ueber MCP (#7762). Hier stand der letzte REST-Aufruf des
+    // Komm-Layers; er blieb, weil `publish-repository-item-tool` weniger kann
+    // als dieser Weg braucht. Jetzt gibt es `sync-repository-item-tool`: Upsert
+    // nach (type, slug), Anhaenge werden ersetzt, Begruendung landet in der
+    // Versionshistorie.
+    let antwort = crate::mcp::call_tool(
+        &connection,
+        &token,
+        "sync-repository-item-tool",
+        serde_json::json!({
             "type": kind,
             "slug": name,
             "name": name,
             "content": inhalt,
             "files": anhang,
             "change_reason": grund.unwrap_or_else(|| format!("Vom Rechner {} zurueckgegeben", connection.device_name)),
-        }))
-        .map_err(|e| match e {
-            ureq::Error::Status(code, resp) => {
-                let body = resp.into_string().unwrap_or_default();
-                format!("Abgelehnt (HTTP {code}): {}", body.trim())
-            }
-            other => format!("Nicht uebertragbar: {other}"),
-        })?
-        .into_json()
-        .map_err(|e| format!("Antwort unlesbar: {e}"))?;
+        }),
+    )?;
 
     let status = antwort
         .get("status")
