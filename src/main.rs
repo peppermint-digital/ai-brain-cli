@@ -19,6 +19,7 @@
 //! tot. Genau deshalb ist die CLI nicht nur ein Einrichtungsprogramm.
 
 mod agent;
+mod aufgaben;
 mod auftrag;
 mod config;
 mod discovery;
@@ -47,6 +48,7 @@ Aufrufe:
   ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-cli agent [...]        Einen Agentenlauf hier starten
   ai-brain-cli agents             Welche Agentenlaeufe hier laufen
+  ai-brain-cli aufgaben [...]     Offene Aufgaben eines Projekts (--projekt, --json)
   ai-brain-cli auftraege          Was AI Brain fuer diesen Rechner bereitlegt
   ai-brain-cli auftrag <nummer>   Einen Auftrag annehmen und abarbeiten
   ai-brain-cli auftrag-melden ..  Ergebnis eines Auftrags nachtragen
@@ -162,6 +164,7 @@ fn main() -> ExitCode {
         Some("agent") => agent::starten(&args[1..]),
         Some("freigabe") => freigabe::verwalten(&args[1..]),
         Some("agents") => register::anzeigen(&args[1..]),
+        Some("aufgaben") => aufgaben::anzeigen(&args[1..]),
         Some("auftraege") => auftrag::anzeigen(&args[1..]),
         Some("auftrag") => auftrag::annehmen(&args[1..]),
         Some("auftrag-melden") => auftrag::nachmelden(&args[1..]),
