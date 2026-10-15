@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mehrere Menschen &middot; ai-brain-cli</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+:root{--bg:#f7f6f2;--surface:#fff;--ink:#1c1e23;--muted:#5c616c;--line:#e0ddd4;
+--akzent:#2f6f4e;--akzent-weich:#dfece5;--warn:#b4532a;--warn-weich:#f7e6dd;
+--term-bg:#16181d;--term-fg:#d8dae0;--term-dim:#7b818d;--brain:#3a6ea8;--cli:#2f6f4e;--nano:#8a5fb0;}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#15171b;--surface:#1d2026;
+--ink:#e7e8ea;--muted:#9aa0ab;--line:#2d313a;--akzent:#6cc295;--akzent-weich:#1d3429;
+--warn:#e08a5f;--warn-weich:#3a2419;--term-bg:#0f1115;--term-fg:#d8dae0;--brain:#7fb0e8;--cli:#6cc295;--nano:#b894dc;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.huelle{display:grid;grid-template-columns:230px minmax(0,1fr);gap:3rem;max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem}
+@media(max-width:900px){.huelle{grid-template-columns:1fr;gap:1.5rem;padding-top:1.5rem}}
+nav{position:sticky;top:2rem;align-self:start;font-size:14.5px}
+@media(max-width:900px){nav{position:static}}
+nav .marke{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:17px;letter-spacing:-.02em;margin-bottom:.2rem}
+nav .unter{color:var(--muted);font-size:13px;margin-bottom:1.3rem}
+nav a{display:block;padding:.3rem 0;color:var(--muted);text-decoration:none;border-left:2px solid transparent;padding-left:.7rem;margin-left:-.7rem}
+nav a:hover{color:var(--ink)}
+nav a.hier{color:var(--akzent);border-left-color:var(--akzent);font-weight:600}
+main{min-width:0;max-width:72ch}
+h1{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:2.1rem;line-height:1.15;letter-spacing:-.025em;margin:0 0 .4rem}
+h2{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:1.35rem;letter-spacing:-.015em;margin:2.6rem 0 .7rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+h3{font-weight:600;font-size:1.05rem;margin:1.8rem 0 .4rem}
+.vorspann{color:var(--muted);font-size:1.07rem;margin:0 0 2rem}
+p{margin:0 0 1rem}
+code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.88em;background:var(--akzent-weich);padding:.1em .35em;border-radius:3px}
+pre{background:var(--term-bg);color:var(--term-fg);padding:1rem 1.1rem;border-radius:8px;overflow-x:auto;font-size:13.5px;line-height:1.6}
+pre code{background:none;padding:0;color:inherit;font-size:inherit}
+pre .d{color:var(--term-dim)}
+figure{margin:1.8rem 0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1.2rem;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;min-width:520px}
+figcaption{margin-top:.9rem;font-size:14px;color:var(--muted);line-height:1.5}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:1.3rem 0;display:block;overflow-x:auto}
+th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.merk{background:var(--akzent-weich);border-left:3px solid var(--akzent);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.5rem 0}
+.warn{background:var(--warn-weich);border-left:3px solid var(--warn);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.5rem 0}
+.merk p:last-child,.warn p:last-child{margin-bottom:0}
+ul,ol{margin:0 0 1rem;padding-left:1.3rem}
+li{margin-bottom:.35rem}
+.fuss{margin-top:3.5rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+a{color:var(--akzent)}
+</style>
+</head>
+<body>
+<div class="huelle">
+<nav>
+<div class="marke">ai-brain-cli</div>
+<div class="unter">Der Harness, Stand 15.10.2026</div>
+<a href="index.html">Uebersicht</a>
+<a href="was-ist-ein-harness.html">Was ist ein Harness?</a>
+<a href="architektur.html">Wie unserer gebaut ist</a>
+<a href="gedaechtnis.html">Wo das Wissen liegt</a>
+<a href="mehrbenutzer.html" class="hier">Mehrere Menschen</a>
+<a href="befehle.html">Alle Befehle</a>
+</nav>
+<main>
+<h1>Mehrere Menschen</h1>
+<p class="vorspann">Ja, aber die Frage ist zu grob. Drei Bedeutungen, zwei davon koennen wir.</p>
+
+<p>Die kurze Antwort: <strong>ja</strong>, aber die Frage ist zu grob gestellt. Mehrbenutzerfaehig
+kann dreierlei heissen, und wir sind es zweimal.</p>
+
+<figure><svg viewBox="0 0 750 292" width="750" height="292" role="img"><defs><marker id="spitze" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs><text x="20" y="20" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--ink)" font-weight="700" text-anchor="start">Ein Rechner kann mehrere Zugaenge tragen — einen je Konto</text><rect x="20" y="36" width="215" height="92" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="34" y="60" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">Konto codingmachine</text><text x="34" y="82" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">~/.config/ai-brain-cli/</text><text x="34" y="101" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Zugang 587364a4</text><text x="34" y="120" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Besitzer: Bastian</text><rect x="255" y="36" width="215" height="92" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="269" y="60" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">Konto bastian</text><text x="269" y="82" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">/home/bastian/.config/…</text><text x="269" y="101" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Zugang 85649ea1</text><text x="269" y="120" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Besitzer: Bastian</text><rect x="490" y="36" width="240" height="92" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="504" y="60" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">Laptop, Konto bastian</text><text x="504" y="82" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Zugang a53112c7</text><text x="504" y="101" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Besitzer: Bastian</text><text x="504" y="120" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">eigene Auswahl, eigene Laeufe</text><rect x="20" y="186" width="710" height="92" rx="8" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/><text x="34" y="210" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--brain)" font-weight="700" text-anchor="start">AI Brain — eine Wahrheit fuer alle</text><text x="34" y="232" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Jeder Zugang gehoert einer PERSON. Was ein Lauf schreibt, traegt diese Person.</text><text x="34" y="251" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Geteilt: Projektwissen, Aufgaben, Wiki.   Je Geraet: Repository-Auswahl, Laufliste, Freigaben.</text><line x1="127" y1="130" x2="127" y2="184" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><line x1="362" y1="130" x2="362" y2="184" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><line x1="610" y1="130" x2="610" y2="184" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/></svg>
+<figcaption>Gemessen am 15.10.2026 an der echten Instanz: zwei Zugaenge auf diesem Rechner,
+einer auf dem Laptop.</figcaption></figure>
+
+<h2>Die drei Bedeutungen</h2>
+<table>
+<tr><th>Was gemeint sein kann</th><th>Koennen wir?</th><th>Wie</th></tr>
+<tr><td>Mehrere <strong>Rechner</strong> an einer Instanz</td><td>ja</td>
+    <td>Ein Geraetezugang je Rechner. Jeder sieht nur seine Auftraege.</td></tr>
+<tr><td>Mehrere <strong>Konten</strong> auf einem Rechner</td><td>ja</td>
+    <td>Die Ablage liegt im Heimverzeichnis. Jedes Konto koppelt sich selbst.</td></tr>
+<tr><td>Zwei <strong>Menschen unter einem Konto</strong></td><td>nein</td>
+    <td>Dann handeln beide als dieselbe Person. Das ist eine echte Grenze.</td></tr>
+</table>
+
+<h2>Woran die Identitaet haengt</h2>
+<p>An genau einer Sache: dem <strong>Geraetezugang</strong>. Das ist ein eigener OAuth-Client,
+entstanden beim Koppeln ueber den Device-Flow, mit einer Person als Besitzer. Unter
+&bdquo;Meine Geraete&ldquo; ist er einzeln entziehbar.</p>
+<p>Daraus folgt alles Weitere, ohne dass es irgendwo zweimal steht:</p>
+<ul>
+<li>welche Auftraege dieser Rechner abholen kann,</li>
+<li>welche Nachrichten er bekommt (und welche er nie bekommt — seine eigenen),</li>
+<li>welche Repository-Eintraege auf ihm landen,</li>
+<li>wem ein geschriebener Gedanke, eine Zeitbuchung, ein Pruefspur-Eintrag gehoert.</li>
+</ul>
+
+<h2>Geteilt oder getrennt?</h2>
+<table>
+<tr><th>Getrennt je Geraet</th><th>Geteilt ueber alle</th></tr>
+<tr><td>Zugangsdaten und Token</td><td>Projektwissen und Wiki</td></tr>
+<tr><td>Repository-Auswahl</td><td>Aufgaben und Bugs</td></tr>
+<tr><td>Laufregister und Protokolle</td><td>Zeiterfassung (je Person zugeordnet)</td></tr>
+<tr><td>Verzeichnis-Freigaben</td><td>Pruefspur</td></tr>
+</table>
+
+<div class="warn"><p><strong>Eine Falle beim Koppeln.</strong> Der Geraetename entsteht als
+<code>$USER@hostname</code>. Omarchy nennt per Vorgabe jeden Rechner <code>omarchy</code> — zwei
+Rechner mit demselben Benutzernamen erzeugen also denselben Namen. Beim Koppeln einen eigenen
+Namen mitgeben, sonst stehen zwei gleichnamige Zugaenge in der Liste und niemand weiss mehr,
+welcher welcher ist.</p></div>
+
+<h2>Was ein zweiter Mensch tun muss</h2>
+<pre><code><span class="d"># in seinem eigenen Konto, auf demselben oder einem anderen Rechner</span>
+curl -fsSL https://brain.proxy.peppermint-digital.com/install.sh | sh
+ai-brain-cli connect
+<span class="d"># bestaetigt im Browser mit SEINEM AI-Brain-Konto</span>
+ai-brain-cli sync --apply</code></pre>
+<p>Ab da schreibt er in dasselbe Projektwissen wie alle anderen, und jeder Eintrag traegt
+seinen Namen. Er sieht die Aufgaben, die er sehen darf, und seine Zeit laeuft auf sein Konto.</p>
+
+<h2>Wo es noch klemmt</h2>
+<ul>
+<li><strong>Ein Konto, zwei Menschen</strong> bleibt nicht trennbar. Wer das braucht, braucht
+getrennte Systemkonten.</li>
+<li><strong>Rechner-genaues Adressieren bei Nachrichten</strong> gibt es noch nicht — eine
+Nachricht geht an eine Person, und der erste ihrer Rechner, der abholt, bekommt sie.</li>
+<li><strong>Zwei Abholer je Rechner</strong> teilen sich einen Zugang und sind fuer AI Brain
+nicht unterscheidbar. Eine Haltefrist von fuenf Minuten verhindert die doppelte Zustellung,
+aber die Unterscheidung selbst kann die Instanz nicht treffen.</li>
+</ul>
+
+<div class="fuss">ai-brain-cli &middot; Doku vom 15.10.2026 &middot; <a href="https://github.com/peppermint-digital/ai-brain-cli">github.com/peppermint-digital/ai-brain-cli</a></div>
+</main>
+</div>
+</body>
+</html>

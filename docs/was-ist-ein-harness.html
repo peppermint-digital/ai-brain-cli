@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Was ist ein Harness? &middot; ai-brain-cli</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+:root{--bg:#f7f6f2;--surface:#fff;--ink:#1c1e23;--muted:#5c616c;--line:#e0ddd4;
+--akzent:#2f6f4e;--akzent-weich:#dfece5;--warn:#b4532a;--warn-weich:#f7e6dd;
+--term-bg:#16181d;--term-fg:#d8dae0;--term-dim:#7b818d;--brain:#3a6ea8;--cli:#2f6f4e;--nano:#8a5fb0;}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#15171b;--surface:#1d2026;
+--ink:#e7e8ea;--muted:#9aa0ab;--line:#2d313a;--akzent:#6cc295;--akzent-weich:#1d3429;
+--warn:#e08a5f;--warn-weich:#3a2419;--term-bg:#0f1115;--term-fg:#d8dae0;--brain:#7fb0e8;--cli:#6cc295;--nano:#b894dc;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.huelle{display:grid;grid-template-columns:230px minmax(0,1fr);gap:3rem;max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem}
+@media(max-width:900px){.huelle{grid-template-columns:1fr;gap:1.5rem;padding-top:1.5rem}}
+nav{position:sticky;top:2rem;align-self:start;font-size:14.5px}
+@media(max-width:900px){nav{position:static}}
+nav .marke{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:17px;letter-spacing:-.02em;margin-bottom:.2rem}
+nav .unter{color:var(--muted);font-size:13px;margin-bottom:1.3rem}
+nav a{display:block;padding:.3rem 0;color:var(--muted);text-decoration:none;border-left:2px solid transparent;padding-left:.7rem;margin-left:-.7rem}
+nav a:hover{color:var(--ink)}
+nav a.hier{color:var(--akzent);border-left-color:var(--akzent);font-weight:600}
+main{min-width:0;max-width:72ch}
+h1{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:2.1rem;line-height:1.15;letter-spacing:-.025em;margin:0 0 .4rem}
+h2{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:1.35rem;letter-spacing:-.015em;margin:2.6rem 0 .7rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+h3{font-weight:600;font-size:1.05rem;margin:1.8rem 0 .4rem}
+.vorspann{color:var(--muted);font-size:1.07rem;margin:0 0 2rem}
+p{margin:0 0 1rem}
+code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.88em;background:var(--akzent-weich);padding:.1em .35em;border-radius:3px}
+pre{background:var(--term-bg);color:var(--term-fg);padding:1rem 1.1rem;border-radius:8px;overflow-x:auto;font-size:13.5px;line-height:1.6}
+pre code{background:none;padding:0;color:inherit;font-size:inherit}
+pre .d{color:var(--term-dim)}
+figure{margin:1.8rem 0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1.2rem;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;min-width:520px}
+figcaption{margin-top:.9rem;font-size:14px;color:var(--muted);line-height:1.5}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:1.3rem 0;display:block;overflow-x:auto}
+th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.merk{background:var(--akzent-weich);border-left:3px solid var(--akzent);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.5rem 0}
+.warn{background:var(--warn-weich);border-left:3px solid var(--warn);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.5rem 0}
+.merk p:last-child,.warn p:last-child{margin-bottom:0}
+ul,ol{margin:0 0 1rem;padding-left:1.3rem}
+li{margin-bottom:.35rem}
+.fuss{margin-top:3.5rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+a{color:var(--akzent)}
+</style>
+</head>
+<body>
+<div class="huelle">
+<nav>
+<div class="marke">ai-brain-cli</div>
+<div class="unter">Der Harness, Stand 15.10.2026</div>
+<a href="index.html">Uebersicht</a>
+<a href="was-ist-ein-harness.html" class="hier">Was ist ein Harness?</a>
+<a href="architektur.html">Wie unserer gebaut ist</a>
+<a href="gedaechtnis.html">Wo das Wissen liegt</a>
+<a href="mehrbenutzer.html">Mehrere Menschen</a>
+<a href="befehle.html">Alle Befehle</a>
+</nav>
+<main>
+<h1>Was ist ein Harness?</h1>
+<p class="vorspann">Das Wort wird benutzt, als waere klar, was es heisst. Hier sind die sieben Teile — und welche davon wir selbst bauen.</p>
+
+<p>Das Wort wird benutzt, als waere klar, was es bedeutet. Ist es nicht. Am ehesten trifft es
+das Bild aus dem Pferdegeschirr: Ein Harness ist nicht das Pferd. Es ist das, was das Pferd
+mit dem Wagen verbindet, sodass aus Kraft Arbeit wird.</p>
+
+<p>Ein Sprachmodell antwortet. Damit daraus <em>Arbeit</em> wird — Dateien aendern, Tests laufen
+lassen, eine Aufgabe abschliessen — braucht es sieben Dinge drumherum. Die Summe davon ist der
+Harness.</p>
+
+<figure><svg viewBox="0 0 770 305" width="770" height="305" role="img"><defs><marker id="spitze" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs><text x="20" y="24" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--ink)" font-weight="700" text-anchor="start">Was zwischen Modell und getaner Arbeit liegt</text><rect x="20" y="44" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.5"/><text x="34" y="68" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--warn)" font-weight="700" text-anchor="start">1 Motor</text><text x="34" y="90" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">das Modell selbst</text><text x="34" y="109" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">claude, codex, …</text><text x="176" y="132" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--warn)" font-weight="600" text-anchor="end">gemietet</text><rect x="205" y="44" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.5"/><text x="219" y="68" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--warn)" font-weight="700" text-anchor="start">2 Schleife</text><text x="219" y="90" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Werkzeug rufen, Ergebnis</text><text x="219" y="109" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">lesen, weitermachen</text><text x="361" y="132" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--warn)" font-weight="600" text-anchor="end">gemietet</text><rect x="390" y="44" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="404" y="68" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">3 Werkzeuge</text><text x="404" y="90" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Shell, Dateien, MCP</text><text x="546" y="132" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--cli)" font-weight="600" text-anchor="end">unseres</text><rect x="575" y="44" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="589" y="68" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">4 Grenzen</text><text x="589" y="90" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">was ein Lauf anfassen</text><text x="589" y="109" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">darf</text><text x="731" y="132" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--cli)" font-weight="600" text-anchor="end">unseres</text><rect x="20" y="156" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--warn)" stroke-width="1.5"/><text x="34" y="180" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--warn)" font-weight="700" text-anchor="start">5 Sitzung</text><text x="34" y="202" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">fortsetzen koennen</text><text x="176" y="244" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--warn)" font-weight="600" text-anchor="end">gemietet</text><rect x="205" y="156" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/><text x="219" y="180" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--brain)" font-weight="700" text-anchor="start">6 Wissen</text><text x="219" y="202" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Skills, Memories,</text><text x="219" y="221" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Aufgaben</text><text x="361" y="244" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--brain)" font-weight="600" text-anchor="end">AI Brain</text><rect x="390" y="156" width="170" height="96" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="404" y="180" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">7 Betrieb</text><text x="404" y="202" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">starten, sehen, stoppen</text><text x="404" y="221" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">protokollieren</text><text x="546" y="244" font-family="IBM Plex Sans,sans-serif" font-size="10.5" fill="var(--cli)" font-weight="600" text-anchor="end">unseres</text><text x="20" y="290" font-family="IBM Plex Sans,sans-serif" font-size="12" fill="var(--muted)" font-weight="400" text-anchor="start">Orange = vom Werkzeug gemietet  ·  Gruen = in der CLI  ·  Blau = in AI Brain</text></svg>
+<figcaption>Die sieben Teile. Entscheidend ist nicht, dass es sie gibt, sondern wer sie
+liefert — und ob man sie einzeln tauschen kann.</figcaption></figure>
+
+<h2>Die sieben Teile, einzeln</h2>
+
+<h3>1. Der Motor</h3>
+<p>Das Modell. Bei uns austauschbar ueber <code>--modell claude</code> oder <code>codex</code>.
+Nichts im Harness haengt daran.</p>
+
+<h3>2. Die Schleife</h3>
+<p>Der Kern: Aufgabe lesen, Werkzeug aufrufen, Ergebnis lesen, weitermachen, bis fertig.
+<strong>Diesen Teil bauen wir nicht.</strong> <code>claude -p</code> und <code>codex exec</code> bringen
+ihn mit. Das ist die wichtigste Entscheidung am ganzen Entwurf — siehe unten.</p>
+
+<h3>3. Werkzeuge</h3>
+<p>Was der Lauf anfassen kann. Shell und Dateien kommen vom Motor; alles, was AI Brain kann,
+kommt ueber MCP dazu — Aufgaben, Memories, Kalender, Server, Zeiterfassung.</p>
+
+<h3>4. Grenzen</h3>
+<p>Ohne Freigabe fragt ein Lauf vor jeder Tat. <code>--schreibend</code> und <code>--vollzugriff</code>
+greifen nur in Verzeichnissen, die vorher freigegeben wurden. Das ist ein Riegel im Harness,
+nicht im Modell.</p>
+
+<h3>5. Sitzung und Verlauf</h3>
+<p>Ein Lauf muss fortsetzbar sein. Auch das liefert der Motor; der Harness merkt sich nur,
+<em>welche</em> Sitzung zu welchem Lauf gehoerte.</p>
+
+<h3>6. Wissen</h3>
+<p>Was der Agent weiss, bevor er anfaengt — Skills, frueher Gelerntes, der Stand des Projekts.
+Das liegt bei uns vollstaendig in AI Brain. Eine eigene Seite dazu:
+<a href="gedaechtnis.html">Wo das Wissen liegt</a>.</p>
+
+<h3>7. Betrieb</h3>
+<p>Starten, sehen was laeuft, stoppen, nachlesen. <code>agents</code>, <code>logs</code>,
+<code>stop</code> — und ein Register auf der Platte, das auch einen Absturz ueberlebt.</p>
+
+<h2>Die Entscheidung, die alles andere bestimmt</h2>
+<div class="merk"><p><strong>Wir bauen die Schleife nicht, wir mieten sie.</strong> Deshalb ist der
+Harness klein genug, um ihn zu verstehen. Ein eigener Agentenkern waere das groesste Stueck
+Arbeit am ganzen Projekt gewesen — und das Stueck, das am schnellsten veraltet.</p></div>
+<p>Die Folge sieht man an den Zahlen: Hermes hatte ueber siebzig Befehle, unsere CLI hat achtzehn.
+Das ist kein Rueckstand. Alles, was dort im selben Prozess sass, liegt bei uns in einer Schicht,
+die man einzeln anfassen kann.</p>
+
+<h2>Woran man einen schlechten Harness erkennt</h2>
+<ul>
+<li><strong>Er kennt nur ein Modell.</strong> Dann ist der Motor kein Teil, sondern das Fundament.</li>
+<li><strong>Sein Gedaechtnis liegt auf der Platte.</strong> Dann endet das Wissen am Rechner.</li>
+<li><strong>Seine Grenzen stehen im Prompt.</strong> Eine Bitte ist kein Riegel.</li>
+<li><strong>Er meldet Erfolg, ohne nachzusehen.</strong> Der haeufigste Fehler, und der teuerste.</li>
+</ul>
+
+<div class="fuss">ai-brain-cli &middot; Doku vom 15.10.2026 &middot; <a href="https://github.com/peppermint-digital/ai-brain-cli">github.com/peppermint-digital/ai-brain-cli</a></div>
+</main>
+</div>
+</body>
+</html>

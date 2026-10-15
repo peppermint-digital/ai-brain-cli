@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Wie unserer gebaut ist &middot; ai-brain-cli</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700;12..96,800&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;600&amp;display=swap">
+<style>
+:root{--bg:#f7f6f2;--surface:#fff;--ink:#1c1e23;--muted:#5c616c;--line:#e0ddd4;
+--akzent:#2f6f4e;--akzent-weich:#dfece5;--warn:#b4532a;--warn-weich:#f7e6dd;
+--term-bg:#16181d;--term-fg:#d8dae0;--term-dim:#7b818d;--brain:#3a6ea8;--cli:#2f6f4e;--nano:#8a5fb0;}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#15171b;--surface:#1d2026;
+--ink:#e7e8ea;--muted:#9aa0ab;--line:#2d313a;--akzent:#6cc295;--akzent-weich:#1d3429;
+--warn:#e08a5f;--warn-weich:#3a2419;--term-bg:#0f1115;--term-fg:#d8dae0;--brain:#7fb0e8;--cli:#6cc295;--nano:#b894dc;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+font-family:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+font-size:16.5px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.huelle{display:grid;grid-template-columns:230px minmax(0,1fr);gap:3rem;max-width:1180px;margin:0 auto;padding:2.5rem 1.5rem 6rem}
+@media(max-width:900px){.huelle{grid-template-columns:1fr;gap:1.5rem;padding-top:1.5rem}}
+nav{position:sticky;top:2rem;align-self:start;font-size:14.5px}
+@media(max-width:900px){nav{position:static}}
+nav .marke{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:17px;letter-spacing:-.02em;margin-bottom:.2rem}
+nav .unter{color:var(--muted);font-size:13px;margin-bottom:1.3rem}
+nav a{display:block;padding:.3rem 0;color:var(--muted);text-decoration:none;border-left:2px solid transparent;padding-left:.7rem;margin-left:-.7rem}
+nav a:hover{color:var(--ink)}
+nav a.hier{color:var(--akzent);border-left-color:var(--akzent);font-weight:600}
+main{min-width:0;max-width:72ch}
+h1{font-family:"Bricolage Grotesque",sans-serif;font-weight:800;font-size:2.1rem;line-height:1.15;letter-spacing:-.025em;margin:0 0 .4rem}
+h2{font-family:"Bricolage Grotesque",sans-serif;font-weight:700;font-size:1.35rem;letter-spacing:-.015em;margin:2.6rem 0 .7rem;padding-top:1.2rem;border-top:1px solid var(--line)}
+h3{font-weight:600;font-size:1.05rem;margin:1.8rem 0 .4rem}
+.vorspann{color:var(--muted);font-size:1.07rem;margin:0 0 2rem}
+p{margin:0 0 1rem}
+code{font-family:"JetBrains Mono",ui-monospace,monospace;font-size:.88em;background:var(--akzent-weich);padding:.1em .35em;border-radius:3px}
+pre{background:var(--term-bg);color:var(--term-fg);padding:1rem 1.1rem;border-radius:8px;overflow-x:auto;font-size:13.5px;line-height:1.6}
+pre code{background:none;padding:0;color:inherit;font-size:inherit}
+pre .d{color:var(--term-dim)}
+figure{margin:1.8rem 0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:1.2rem;overflow-x:auto}
+figure svg{display:block;max-width:100%;height:auto;min-width:520px}
+figcaption{margin-top:.9rem;font-size:14px;color:var(--muted);line-height:1.5}
+table{border-collapse:collapse;width:100%;font-size:14.5px;margin:1.3rem 0;display:block;overflow-x:auto}
+th,td{text-align:left;padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-weight:600;color:var(--muted);font-size:13px;text-transform:uppercase;letter-spacing:.04em}
+.merk{background:var(--akzent-weich);border-left:3px solid var(--akzent);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.5rem 0}
+.warn{background:var(--warn-weich);border-left:3px solid var(--warn);padding:.9rem 1.1rem;border-radius:0 8px 8px 0;margin:1.5rem 0}
+.merk p:last-child,.warn p:last-child{margin-bottom:0}
+ul,ol{margin:0 0 1rem;padding-left:1.3rem}
+li{margin-bottom:.35rem}
+.fuss{margin-top:3.5rem;padding-top:1.2rem;border-top:1px solid var(--line);color:var(--muted);font-size:13.5px}
+a{color:var(--akzent)}
+</style>
+</head>
+<body>
+<div class="huelle">
+<nav>
+<div class="marke">ai-brain-cli</div>
+<div class="unter">Der Harness, Stand 15.10.2026</div>
+<a href="index.html">Uebersicht</a>
+<a href="was-ist-ein-harness.html">Was ist ein Harness?</a>
+<a href="architektur.html" class="hier">Wie unserer gebaut ist</a>
+<a href="gedaechtnis.html">Wo das Wissen liegt</a>
+<a href="mehrbenutzer.html">Mehrere Menschen</a>
+<a href="befehle.html">Alle Befehle</a>
+</nav>
+<main>
+<h1>Wie unserer gebaut ist</h1>
+<p class="vorspann">Drei Schichten statt einem Programm. Warum AI Brain nirgends anruft, und was wo liegt.</p>
+
+<p>Hermes war ein Programm, in dem alles sass: Agentenschleife, Sitzungen, Messenger, Zeitplan,
+Kanban, Gedaechtnis. Bei uns liegt dasselbe auf drei Schichten. Das ist kein Nachbau mit anderen
+Mitteln, sondern eine andere Bauform.</p>
+
+<figure><svg viewBox="0 0 750 405" width="750" height="405" role="img"><defs><marker id="spitze" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs><rect x="20" y="20" width="710" height="70" rx="8" fill="var(--surface)" stroke="var(--muted)" stroke-width="1.5"/><text x="34" y="44" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--muted)" font-weight="700" text-anchor="start">Wer Arbeit einstellt</text><text x="34" y="66" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Web-Oberflaeche  ·  Avatar  ·  Channels (WhatsApp, Mail, …)  ·  Terminal</text><rect x="20" y="120" width="710" height="96" rx="8" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/><text x="34" y="144" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--brain)" font-weight="700" text-anchor="start">AI Brain — das Gedaechtnis und die Auftraege</text><text x="34" y="166" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Aufgaben  ·  Bugs  ·  Memories  ·  Wiki  ·  Zeit  ·  Pruefspur  ·  Zeitplan</text><text x="34" y="185" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Spricht nur MCP. Legt Auftraege hin — ruft nirgends an.</text><rect x="20" y="258" width="345" height="112" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="34" y="282" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">ai-brain-cli — auf deinem Rechner</text><text x="34" y="304" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Hostzugriff: Shell, Dateien, SSH</text><text x="34" y="323" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Geraetezugang = eine Person</text><text x="34" y="342" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">mietet claude -p / codex exec</text><rect x="385" y="258" width="345" height="112" rx="8" fill="var(--surface)" stroke="var(--nano)" stroke-width="1.5"/><text x="399" y="282" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--nano)" font-weight="700" text-anchor="start">NanoClaw — im Container</text><text x="399" y="304" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">kein Hostzugriff, mit Absicht</text><text x="399" y="323" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">ein Channel = ein Chat</text><text x="399" y="342" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">eigenes Gedaechtnis je Gruppe</text><line x1="375" y1="90" x2="375" y2="118" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><text x="375.0" y="97.0" font-family="IBM Plex Sans,sans-serif" font-size="11.5" fill="var(--muted)" font-weight="500" text-anchor="middle">legt ein</text><line x1="192" y1="218" x2="192" y2="256" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><text x="192.0" y="230.0" font-family="IBM Plex Sans,sans-serif" font-size="11.5" fill="var(--muted)" font-weight="500" text-anchor="middle">holt ab</text><line x1="558" y1="218" x2="558" y2="256" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><text x="558.0" y="230.0" font-family="IBM Plex Sans,sans-serif" font-size="11.5" fill="var(--muted)" font-weight="500" text-anchor="middle">bekommt</text><text x="20" y="392" font-family="IBM Plex Sans,sans-serif" font-size="12" fill="var(--muted)" font-weight="400" text-anchor="start">Jede Schicht ist fuer sich austauschbar. Das ist der Unterschied zu einem Programm, das alles selbst macht.</text></svg>
+<figcaption>Wer Arbeit einstellt, wo sie liegt, wo sie ausgefuehrt wird. Die mittlere Schicht
+ruft niemals nach unten an.</figcaption></figure>
+
+<h2>Warum das Holprinzip</h2>
+<p>AI Brain stellt nicht zu. Es legt einen Auftrag hin, und der Zielrechner fragt beim naechsten
+Lauf, ob etwas fuer ihn da ist. Drei Gruende:</p>
+<ul>
+<li><strong>Kein Arbeitsplatz braucht einen offenen Port.</strong> Die Vertrauensrichtung bleibt
+immer Geraet zur Instanz.</li>
+<li><strong>Ein ausgeschalteter Rechner ist kein Fehlerfall.</strong> Der Auftrag liegt einfach da.</li>
+<li><strong>Die Anmeldung ist dieselbe wie fuer alles andere.</strong> Kein zweiter Weg mit
+eigenen Geheimnissen.</li>
+</ul>
+
+<figure><svg viewBox="0 0 750 258" width="750" height="258" role="img"><defs><marker id="spitze" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--muted)"/></marker></defs><rect x="20" y="30" width="155" height="86" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="34" y="54" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">Mensch</text><text x="34" y="76" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Aufgabe anlegen</text><text x="34" y="95" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">UI, Avatar, Channel</text><rect x="205" y="30" width="155" height="86" rx="8" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/><text x="219" y="54" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--brain)" font-weight="700" text-anchor="start">AI Brain</text><text x="219" y="76" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">Auftrag hinlegen</text><text x="219" y="95" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">fuer EINEN Rechner</text><rect x="390" y="30" width="155" height="86" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="404" y="54" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">Rechner</text><text x="404" y="76" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">auftraege / auftrag</text><text x="404" y="95" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">annehmen, atomar</text><rect x="575" y="30" width="155" height="86" rx="8" fill="var(--surface)" stroke="var(--cli)" stroke-width="1.5"/><text x="589" y="54" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--cli)" font-weight="700" text-anchor="start">Lauf</text><text x="589" y="76" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">claude -p / codex</text><text x="589" y="95" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">mit Hostzugriff</text><line x1="175" y1="73" x2="204" y2="73" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><line x1="360" y1="73" x2="389" y2="73" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><line x1="545" y1="73" x2="574" y2="73" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><line x1="652" y1="120" x2="652" y2="150" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><rect x="390" y="152" width="340" height="68" rx="8" fill="var(--surface)" stroke="var(--brain)" stroke-width="1.5"/><text x="404" y="176" font-family="IBM Plex Sans,sans-serif" font-size="14" fill="var(--brain)" font-weight="700" text-anchor="start">Ergebnis zurueck</text><text x="404" y="198" font-family="IBM Plex Sans,sans-serif" font-size="12.5" fill="var(--muted)" font-weight="400" text-anchor="start">completed oder failed  ·  Pruefspur im Audit</text><line x1="388" y1="186" x2="290" y2="186" stroke="var(--muted)" stroke-width="1.5" marker-end="url(#spitze)"/><text x="339.0" y="179.0" font-family="IBM Plex Sans,sans-serif" font-size="11.5" fill="var(--muted)" font-weight="500" text-anchor="middle">meldet</text><text x="20" y="244" font-family="IBM Plex Sans,sans-serif" font-size="12" fill="var(--muted)" font-weight="400" text-anchor="start">AI Brain ruft nirgends an. Der Rechner fragt — deshalb braucht kein Arbeitsplatz einen offenen Port.</text></svg>
+<figcaption>Der Weg eines Auftrags. Das Annehmen ist atomar — zwei Laeufe koennen denselben
+Auftrag nicht greifen.</figcaption></figure>
+
+<h2>Was wo liegt</h2>
+<table>
+<tr><th>Teil</th><th>Wo</th><th>Warum dort</th></tr>
+<tr><td>Agentenschleife</td><td>gemietet (claude, codex)</td><td>Das aelteste Stueck zuerst; wir
+wuerden es nur schlechter nachbauen.</td></tr>
+<tr><td>Hostzugriff</td><td>ai-brain-cli</td><td>Nur hier gibt es echten Shell- und Dateizugriff.
+NanoClaw hat ihn mit Absicht nicht.</td></tr>
+<tr><td>Auftraege, Wissen, Zeit</td><td>AI Brain</td><td>Damit es den Rechner ueberlebt und
+zwischen Menschen geteilt wird.</td></tr>
+<tr><td>Channels (WhatsApp, Mail)</td><td>NanoClaw</td><td>Container, ein Channel = ein Chat.
+Bewusst nicht angefasst beim Bau der CLI.</td></tr>
+<tr><td>Oberflaeche</td><td>imkr, Terminal, Web</td><td>Austauschbar. imkr ist eine Oberflaeche
+davor, kein Teil des Harness.</td></tr>
+</table>
+
+<h2>Wie ein Lauf ablaeuft</h2>
+<pre><code>ai-brain-cli agent --task 7779 --projekt ai-brain --imkr --schreibend</code></pre>
+<ol>
+<li>Aufgabentext aus AI Brain holen (ueber MCP, mit dem Geraetezugang).</li>
+<li>Pruefen, ob das Arbeitsverzeichnis freigegeben ist — sonst bleibt es beim Fragen.</li>
+<li>Kennung vergeben und im Register eintragen, bevor etwas startet.</li>
+<li><code>claude -p</code> starten, bei <code>--imkr</code> in einem eigenen Pane.</li>
+<li>Der Lauf arbeitet und schreibt sein Ergebnis selbst nach AI Brain — Memories, Zeit, Status.</li>
+<li>Das Register merkt sich, wie es ausging. <code>agents</code>, <code>logs</code>, <code>stop</code>
+greifen darauf zu.</li>
+</ol>
+
+<div class="warn"><p><strong>Eine Grenze, die man kennen muss.</strong> Der Harness weiss nicht, ob
+die <em>Arbeit</em> getan ist — nur, ob der <em>Lauf</em> durchgelaufen ist. Deshalb schliesst ein
+erfolgreicher Lauf die Aufgabe nicht ab. Das bleibt eine Entscheidung, die ein Mensch trifft
+oder der Agent ausdruecklich per <code>complete-task-tool</code>.</p></div>
+
+<h2>Was austauschbar ist</h2>
+<p>Jede Schicht fuer sich. Ein anderes Modell: ein Schalter. Eine andere Oberflaeche: andockbar
+ueber MCP. Ein anderer Rechner: ein weiterer Geraetezugang. Was nicht austauschbar ist, ist
+AI Brain selbst — es ist der Ort, an dem die Wahrheit liegt, und genau das ist Absicht.</p>
+
+<div class="fuss">ai-brain-cli &middot; Doku vom 15.10.2026 &middot; <a href="https://github.com/peppermint-digital/ai-brain-cli">github.com/peppermint-digital/ai-brain-cli</a></div>
+</main>
+</div>
+</body>
+</html>
