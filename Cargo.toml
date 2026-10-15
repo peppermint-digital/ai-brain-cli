@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 description = "Verbindet einen Rechner mit einer AI-Brain-Instanz, stellt deren MCP-Server bereit und startet lokale Agentenlaeufe"
 license = "MIT"
-repository = "https://github.com/peppermint-digital/ai-brain-cli"
+repository = "https://github.com/peppermint-digital/ai-brain-harness"
 
 [dependencies]
 ureq = { version = "2.10", features = ["json", "tls"] }
