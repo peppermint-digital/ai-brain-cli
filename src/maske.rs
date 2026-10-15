@@ -186,6 +186,18 @@ pub fn starten(args: &[String]) -> Result<(), String> {
             }
         }
 
+        // **Vor dem Zug, nicht danach.** Ohne Anmeldung reicht der Motor eine
+        // eigene Meldung durch, die nach einem Programmfehler klingt. Der
+        // Mensch davor braucht einen Satz, der sagt, was zu tun ist.
+        if !konto::angemeldet(&umgebung) {
+            eprintln!();
+            for zeile in konto::anmeldehinweis(&umgebung).lines() {
+                eprintln!("  {zeile}");
+            }
+
+            continue;
+        }
+
         let _ = register::herzschlag(&lauf.id);
 
         match zug_fahren(text, &verzeichnis, rechte, sitzung.as_deref(), &umgebung) {
@@ -287,6 +299,13 @@ fn befehl(
             "" => {
                 println!("  Jetzt:  {}", konto::aktuelles(umgebung));
                 println!("  Modell: {}", konto::modell(umgebung));
+
+                if !konto::angemeldet(umgebung) {
+                    println!();
+                    for zeile in konto::anmeldehinweis(umgebung).lines() {
+                        println!("  {zeile}");
+                    }
+                }
 
                 // **Zwei Quellen, beide gekennzeichnet.** Wer imkr benutzt,
                 // hat seine Konten dort; wer nicht, hat sie in AI Brain.
@@ -789,10 +808,16 @@ fn schirm(
         ),
     );
 
-    let motorzeile = match konto::anbieter(umgebung) {
+    let mut motorzeile = match konto::anbieter(umgebung) {
         Some(a) => format!("claude \x1b[2m·\x1b[0m {}  \x1b[2m·\x1b[0m {a}", konto::modell(umgebung)),
         None => format!("claude \x1b[2m·\x1b[0m {}", konto::modell(umgebung)),
     };
+
+    // Eine fehlende Anmeldung gehoert in die Motorzeile, nicht in die erste
+    // Fehlermeldung eines Zuges. Wer das hier sieht, probiert nicht erst.
+    if !konto::angemeldet(umgebung) {
+        motorzeile.push_str("  \x1b[33mnicht angemeldet\x1b[0m");
+    }
 
     feld("Motor", &motorzeile);
 

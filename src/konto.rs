@@ -58,6 +58,77 @@ pub fn liste() -> Option<String> {
     Some(text)
 }
 
+/// Ist dieser Rechner überhaupt am Modellanbieter angemeldet?
+///
+/// **Warum die Maske das wissen muss.** Ohne Anmeldung reicht der Motor eine
+/// eigene Meldung durch, die nach einem Programmfehler klingt. Der Mensch
+/// davor braucht aber einen Satz, der sagt, was zu tun ist — und das ist
+/// `claude login`, nicht ein Fehlerbericht.
+///
+/// Erkannt an `.credentials.json` im geltenden Konfigurationsordner. Das ist
+/// die Datei, die `claude login` anlegt; imkr legt sie je Konto eigens ab.
+/// Bewusst nicht am Token in der Umgebung: wer `ANTHROPIC_API_KEY` gesetzt
+/// hat, ist auch angemeldet, nur anders — deshalb zählt beides.
+pub fn angemeldet(umgebung: &BTreeMap<String, String>) -> bool {
+    for name in ["ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN"] {
+        let gesetzt = umgebung
+            .get(name)
+            .cloned()
+            .or_else(|| std::env::var(name).ok())
+            .filter(|w| !w.trim().is_empty());
+
+        if gesetzt.is_some() {
+            return true;
+        }
+    }
+
+    let Some(ordner) = konfigurationsordner(umgebung) else {
+        return false;
+    };
+
+    std::path::Path::new(&ordner).join(".credentials.json").is_file()
+}
+
+/// Der geltende Konfigurationsordner von Claude Code.
+fn konfigurationsordner(umgebung: &BTreeMap<String, String>) -> Option<String> {
+    if let Some(pfad) = umgebung
+        .get("CLAUDE_CONFIG_DIR")
+        .cloned()
+        .or_else(|| std::env::var("CLAUDE_CONFIG_DIR").ok())
+        .filter(|p| !p.trim().is_empty())
+    {
+        return Some(pfad);
+    }
+
+    std::env::var("HOME").ok().map(|h| format!("{h}/.claude"))
+}
+
+/// Was zu tun ist, wenn keine Anmeldung gefunden wurde.
+///
+/// Zwei Wege, und der Unterschied gehört dazu: `login` öffnet den Browser und
+/// ist für einen Menschen am Rechner gedacht; `setup-token` erzeugt ein
+/// langlebiges Token und ist der Weg für Rechner ohne Browser.
+pub fn anmeldehinweis(umgebung: &BTreeMap<String, String>) -> String {
+    let ordner = konfigurationsordner(umgebung).unwrap_or_else(|| "~/.claude".to_string());
+
+    // Aus Zeilen zusammengesetzt, nicht als mehrzeiliges Literal: ein
+    // Literal ueber mehrere Zeilen nimmt die Einrueckung des Quelltexts MIT,
+    // und die landet auf dem Bildschirm. Beim ersten Echttest standen neun
+    // Leerzeichen vor jeder Folgezeile.
+    [
+        "Dieser Rechner ist nicht am Modellanbieter angemeldet.".to_string(),
+        format!("In {ordner} liegt keine `.credentials.json`, und es ist"),
+        "kein Token in der Umgebung gesetzt.".to_string(),
+        String::new(),
+        "Anmelden:       claude login         (öffnet den Browser)".to_string(),
+        "Ohne Browser:   claude setup-token   (langlebiges Token, braucht ein Abo)".to_string(),
+        String::new(),
+        "Ohne Anmeldung laufen weiterhin: /aufgaben, /auftraege, /daueraufgaben,".to_string(),
+        "/dienste, /rechner, /erinnerungen. Es fehlt nur das Gespräch.".to_string(),
+    ]
+    .join("\n")
+}
+
 /// Die Modellkonten, die AI Brain führt.
 ///
 /// **Zweite Quelle, nicht Ersatz.** Wer imkr benutzt, hat seine Konten dort;
@@ -312,6 +383,75 @@ mod tests {
             .iter()
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect()
+    }
+
+    #[test]
+    fn ein_token_in_der_umgebung_gilt_als_angemeldet() {
+        // Wer `ANTHROPIC_API_KEY` gesetzt hat, ist angemeldet — nur anders als
+        // per `claude login`. Beides zaehlt, sonst meldet die Maske „nicht
+        // angemeldet" an jemanden, der gerade arbeitet.
+        //
+        // **Der Ordner muss leer sein.** Ohne `CLAUDE_CONFIG_DIR` greift der
+        // Rueckfall auf `~/.claude` — und auf einem Entwicklerrechner liegt
+        // dort eine `.credentials.json`. Der Test war damit gruen, egal ob die
+        // Umgebungsvariable geprueft wird. Mit einer Mutationsprobe gefunden:
+        // das Entfernen des Umgebungswegs liess ihn unberuehrt.
+        let ordner = std::env::temp_dir().join(format!("harness-nur-env-{}", std::process::id()));
+        std::fs::create_dir_all(&ordner).unwrap();
+
+        let u = mit(&[
+            ("ANTHROPIC_API_KEY", "sk-ant-api03-irgendwas"),
+            ("CLAUDE_CONFIG_DIR", &ordner.display().to_string()),
+        ]);
+
+        assert!(angemeldet(&u), "ein Token in der Umgebung ist eine Anmeldung");
+
+        let _ = std::fs::remove_dir_all(&ordner);
+    }
+
+    #[test]
+    fn ein_leeres_token_gilt_nicht_als_angemeldet() {
+        // Eine gesetzte, aber leere Variable ist der haeufigste Fall nach einem
+        // misslungenen Export — sie darf nicht wie eine Anmeldung aussehen.
+        let u = mit(&[("ANTHROPIC_API_KEY", "   ")]);
+        let voruebergehend = std::env::temp_dir().join(format!("harness-leer-{}", std::process::id()));
+        std::fs::create_dir_all(&voruebergehend).unwrap();
+
+        let mut u2 = u.clone();
+        u2.insert("CLAUDE_CONFIG_DIR".into(), voruebergehend.display().to_string());
+
+        assert!(!angemeldet(&u2));
+
+        let _ = std::fs::remove_dir_all(&voruebergehend);
+    }
+
+    #[test]
+    fn eine_credentials_datei_gilt_als_angemeldet() {
+        let ordner = std::env::temp_dir().join(format!("harness-angemeldet-{}", std::process::id()));
+        std::fs::create_dir_all(&ordner).unwrap();
+        std::fs::write(ordner.join(".credentials.json"), "{}").unwrap();
+
+        let u = mit(&[("CLAUDE_CONFIG_DIR", &ordner.display().to_string())]);
+
+        assert!(angemeldet(&u));
+
+        let _ = std::fs::remove_dir_all(&ordner);
+    }
+
+    #[test]
+    fn der_hinweis_nennt_beide_wege_und_den_ordner() {
+        let ordner = std::env::temp_dir().join("harness-hinweis-pruefung");
+        let u = mit(&[("CLAUDE_CONFIG_DIR", &ordner.display().to_string())]);
+
+        let h = anmeldehinweis(&u);
+
+        assert!(h.contains("claude login"), "{h}");
+        // Der Weg ohne Browser gehoert dazu — genau fuer Rechner, die keinen
+        // haben.
+        assert!(h.contains("setup-token"), "{h}");
+        assert!(h.contains(&ordner.display().to_string()), "{h}");
+        // Und was trotzdem geht, damit die Maske nicht wertlos wirkt.
+        assert!(h.contains("/dienste"), "{h}");
     }
 
     #[test]
