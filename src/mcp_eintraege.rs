@@ -158,7 +158,13 @@ fn inhalt_finden(bundle: &serde_json::Value) -> Option<&serde_json::Value> {
                     .unwrap_or(false)
             })
         })
-        .or_else(|| if dateien.len() == 1 { dateien.first() } else { None })
+        .or_else(|| {
+            if dateien.len() == 1 {
+                dateien.first()
+            } else {
+                None
+            }
+        })
         .and_then(|d| d.get("content"))
 }
 
@@ -278,10 +284,7 @@ pub fn claude_lesen(pfad: &Path, name: &str) -> Result<Option<serde_json::Value>
 
     let wurzel = json_lesen(pfad)?;
 
-    Ok(wurzel
-        .get("mcpServers")
-        .and_then(|s| s.get(name))
-        .cloned())
+    Ok(wurzel.get("mcpServers").and_then(|s| s.get(name)).cloned())
 }
 
 /// Setzt oder entfernt genau `mcpServers.<name>` — alles andere bleibt.
@@ -408,10 +411,31 @@ pub fn codex_lesen(name: &str) -> Result<Option<serde_json::Value>, String> {
         return Ok(None);
     }
 
-    let wert: serde_json::Value = serde_json::from_slice(&ausgabe.stdout)
+    let wert = json_ab_erster_klammer(&ausgabe.stdout)
         .map_err(|e| format!("codex mcp get {name} lieferte kein JSON: {e}"))?;
 
     Ok(Some(codex_normalisieren(&wert)))
+}
+
+/// Liest das JSON-Objekt ab der ersten Zeile, die mit `{` beginnt.
+///
+/// `codex` ist auf Omarchy-Rechnern ein Wrapper, der vorher `mise use -g codex`
+/// aufruft — und mise schreibt dabei eine Zeile wie
+/// `mise ~/.config/mise/config.toml tools: codex@0.160.1` auf die
+/// Standardausgabe, VOR das JSON. Am 15.10.2026 brach `sync` daran auf dem
+/// Laptop ab. Was davor steht, ist nie Teil der Antwort.
+fn json_ab_erster_klammer(stdout: &[u8]) -> Result<serde_json::Value, serde_json::Error> {
+    let text = String::from_utf8_lossy(stdout);
+    let mut start = 0;
+
+    for zeile in text.split_inclusive('\n') {
+        if zeile.trim_start().starts_with('{') {
+            break;
+        }
+        start += zeile.len();
+    }
+
+    serde_json::from_str(&text[start..])
 }
 
 /// Bringt die Ausgabe von `codex mcp get --json` auf die Teile, die der
@@ -431,7 +455,11 @@ pub fn codex_normalisieren(wert: &serde_json::Value) -> serde_json::Value {
     })
 }
 
-pub fn codex_schreiben(name: &str, definition: &Definition, browser: Option<&Path>) -> Result<(), String> {
+pub fn codex_schreiben(
+    name: &str,
+    definition: &Definition,
+    browser: Option<&Path>,
+) -> Result<(), String> {
     // Ersetzen heisst bei Codex: erst weg, dann neu. Aufgerufen wird das nur,
     // wenn die Entscheidung zum Überschreiben schon gefallen ist.
     let _ = std::process::Command::new("codex")
@@ -557,11 +585,27 @@ pub fn urteilen(
 ///
 /// Nur wenn er noch genau so dasteht, wie der Harness ihn geschrieben hat.
 pub fn entfernbar(vorhanden: Option<&serde_json::Value>, bekannt: &str) -> bool {
-    vorhanden.map(|v| eintrag_hash(v) == bekannt).unwrap_or(false)
+    vorhanden
+        .map(|v| eintrag_hash(v) == bekannt)
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn codex_json_hinter_mise_zeile() {
+        let stdout =
+            b"mise ~/.config/mise/config.toml tools: codex@0.160.1\n{\n  \"name\": \"x\"\n}\n";
+        let wert = json_ab_erster_klammer(stdout).unwrap();
+        assert_eq!(wert["name"], "x");
+    }
+
+    #[test]
+    fn codex_json_ohne_vorspann() {
+        let wert = json_ab_erster_klammer(b"{\"name\": \"y\"}").unwrap();
+        assert_eq!(wert["name"], "y");
+    }
+
     use super::*;
 
     fn spielwiese(name: &str) -> PathBuf {
@@ -591,7 +635,12 @@ mod tests {
 
         assert_eq!(
             d.argumente(Some(Path::new("/usr/bin/chromium"))),
-            vec!["-y", "@playwright/mcp@latest", "--executable-path", "/usr/bin/chromium"]
+            vec![
+                "-y",
+                "@playwright/mcp@latest",
+                "--executable-path",
+                "/usr/bin/chromium"
+            ]
         );
         assert_eq!(d.argumente(None), vec!["-y", "@playwright/mcp@latest"]);
 
@@ -614,7 +663,10 @@ mod tests {
         fs::create_dir_all(&bin).unwrap();
 
         // Leerer PATH, kein fester Ort: nichts.
-        assert_eq!(browser_finden_in(Some(bin.clone().into_os_string()), &[]), None);
+        assert_eq!(
+            browser_finden_in(Some(bin.clone().into_os_string()), &[]),
+            None
+        );
 
         // Chrome an einem festen Ort.
         let mac = wiese.join("Google Chrome");
@@ -649,7 +701,10 @@ mod tests {
             },
         });
         let d = definition_lesen(&bundle).unwrap();
-        assert_eq!(d.command, "npx", "der Schlüssel `mcp` hat Vorrang vor der Datei");
+        assert_eq!(
+            d.command, "npx",
+            "der Schlüssel `mcp` hat Vorrang vor der Datei"
+        );
         assert_eq!(d.browser_flag.as_deref(), Some("--executablePath"));
 
         // browser_flag: null von der Instanz heisst: kein Browser.
@@ -673,7 +728,10 @@ mod tests {
 
         // Ohne Befehl kein Server.
         assert!(definition_lesen(&serde_json::json!({ "mcp": { "args": [] } })).is_err());
-        assert!(definition_lesen(&serde_json::json!({ "files": [{ "path": "mcp.json", "content": "kein json" }] })).is_err());
+        assert!(definition_lesen(
+            &serde_json::json!({ "files": [{ "path": "mcp.json", "content": "kein json" }] })
+        )
+        .is_err());
         assert!(definition_lesen(&serde_json::json!({ "files": [] })).is_err());
     }
 
@@ -726,13 +784,18 @@ mod tests {
             claude_schreiben(pfad, "playwright", Some(&eintrag), &mut gesichert).unwrap();
         }
 
-        let nach_a: serde_json::Value = serde_json::from_str(&fs::read_to_string(&a).unwrap()).unwrap();
+        let nach_a: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&a).unwrap()).unwrap();
         assert_eq!(nach_a["numStartups"], 42);
         assert_eq!(nach_a["projects"], fremd_a["projects"]);
-        assert_eq!(nach_a["mcpServers"]["hermes"], fremd_a["mcpServers"]["hermes"]);
+        assert_eq!(
+            nach_a["mcpServers"]["hermes"],
+            fremd_a["mcpServers"]["hermes"]
+        );
         assert_eq!(nach_a["mcpServers"]["playwright"], eintrag);
 
-        let nach_b: serde_json::Value = serde_json::from_str(&fs::read_to_string(&b).unwrap()).unwrap();
+        let nach_b: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&b).unwrap()).unwrap();
         assert_eq!(nach_b["oauthAccount"]["emailAddress"], "x@y");
         assert_eq!(nach_b["mcpServers"]["playwright"], eintrag);
 
@@ -767,21 +830,36 @@ mod tests {
         assert_eq!(urteilen(Some(&fremd), &gewuenscht, None, true), Lage::Fremd);
 
         // Nie selbst geschrieben, aber genau das Gewünschte: übernehmen.
-        assert_eq!(urteilen(Some(&gewuenscht), &gewuenscht, None, true), Lage::Uebernommen);
+        assert_eq!(
+            urteilen(Some(&gewuenscht), &gewuenscht, None, true),
+            Lage::Uebernommen
+        );
 
         // Selbst geschrieben, hier verändert, Instanz still: bleibt.
         let eigen = eintrag_hash(&gewuenscht);
-        assert_eq!(urteilen(Some(&fremd), &gewuenscht, Some(&eigen), true), Lage::LokalGeaendert);
+        assert_eq!(
+            urteilen(Some(&fremd), &gewuenscht, Some(&eigen), true),
+            Lage::LokalGeaendert
+        );
 
         // Selbst geschrieben, hier verändert, Instanz bewegt: Konflikt.
         let neu = playwright().claude_eintrag(Some(Path::new("/usr/bin/chromium")));
-        assert_eq!(urteilen(Some(&fremd), &neu, Some(&eigen), false), Lage::Konflikt);
+        assert_eq!(
+            urteilen(Some(&fremd), &neu, Some(&eigen), false),
+            Lage::Konflikt
+        );
 
         // Selbst geschrieben, unverändert, Instanz bewegt: aktualisieren.
-        assert_eq!(urteilen(Some(&gewuenscht), &neu, Some(&eigen), false), Lage::Aktualisiert);
+        assert_eq!(
+            urteilen(Some(&gewuenscht), &neu, Some(&eigen), false),
+            Lage::Aktualisiert
+        );
 
         assert_eq!(urteilen(None, &gewuenscht, Some(&eigen), true), Lage::Neu);
-        assert_eq!(urteilen(Some(&gewuenscht), &gewuenscht, Some(&eigen), true), Lage::Unveraendert);
+        assert_eq!(
+            urteilen(Some(&gewuenscht), &gewuenscht, Some(&eigen), true),
+            Lage::Unveraendert
+        );
     }
 
     #[test]
@@ -791,8 +869,12 @@ mod tests {
 
         assert!(entfernbar(Some(&eigen), &hash));
 
-        let veraendert = serde_json::json!({ "type": "stdio", "command": "npx", "args": ["--headless"] });
-        assert!(!entfernbar(Some(&veraendert), &hash), "hier geändert — bleibt");
+        let veraendert =
+            serde_json::json!({ "type": "stdio", "command": "npx", "args": ["--headless"] });
+        assert!(
+            !entfernbar(Some(&veraendert), &hash),
+            "hier geändert — bleibt"
+        );
         assert!(!entfernbar(None, &hash), "schon weg — nichts zu tun");
     }
 
@@ -810,6 +892,9 @@ mod tests {
             },
         });
 
-        assert_eq!(codex_normalisieren(&codex), playwright().codex_eintrag(None));
+        assert_eq!(
+            codex_normalisieren(&codex),
+            playwright().codex_eintrag(None)
+        );
     }
 }
