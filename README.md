@@ -1,10 +1,103 @@
-# AI Brain CLI
+# AI Brain Harness
 
-Verbindet einen Rechner mit einer AI-Brain-Instanz — und stellt deren
-MCP-Server danach für Claude Code bereit.
+Verbindet einen Rechner mit einer AI-Brain-Instanz, gibt ihm deren Werkzeuge
+*und* die Hoheit über diesen Rechner — und hält das Gespräch in einer eigenen
+Maske.
+
+Der Befehl heisst vorläufig weiter `ai-brain-cli`; der Einstieg ist `brain`.
 
 Du gibst eine Domain an, bestätigst einmal einen kurzen Code im Browser, fertig.
 Zugangsdaten tippst du nirgends ab; sie wandern nie durch die Zwischenablage.
+
+## Was ein Harness ist — und was dieser anders macht
+
+Ein *Harness* ist die Schicht zwischen einem Sprachmodell und der Welt: sie hält
+das Gespräch, reicht Werkzeuge hinein, verwaltet Zugänge und Rechte und
+entscheidet, was ausgeführt werden darf. Eine Quellcode-Studie über elf solcher
+Systeme zerlegt sie in sechs Teile — Werkzeugschicht, Zugangsverwaltung,
+Rechtesystem, Loop-Steuerung, Plattformabstraktion, Laufzeitumgebung. Daran
+lassen sich die Systeme vergleichen, die dasselbe Problem verschieden lösen:
+
+|  | Agentenschleife | Werkzeuge | Zugänge | Rechte | Rechnerzugriff |
+|---|---|---|---|---|---|
+| **Pi** | eigen, bewusst minimal (Systemprompt und Werkzeugdefinitionen unter 1000 Token) | 8 eingebaute, 4 standardmässig an: `read`, `write`, `edit`, `bash`; dazu `grep`, `find`, `ls` | selbst besorgen | als Erweiterung nachrüstbar (Rechtegitter, Pfadschutz, Sandbox) | ja |
+| **OpenClaw** | Pi als Kern, darüber ein Plugin-Ökosystem | je Integration ein Plugin mit Manifest — Channels, Modellanbieter, Speicher, Skills | je Plugin | je Plugin | ja |
+| **Hermes** | eigen | eigene, mitgebracht (Terminal, Datei, Gedächtnis, Cronjob, TTS, Vision …) | eigene Ablage unter `~/.hermes` | keine | ja, aber `computer_use` nur unter macOS |
+| **AI Brain Harness** | **gemietet** (noch) | **AI Brains MCP-Werkzeuge *und* die dieses Rechners** | **AI Brains Register** | **AI Brains Nutzerrechte** | ja, voller Rechner |
+
+### Der Unterschied in einem Satz
+
+Die anderen bringen ihre Welt mit. Dieser erbt sie.
+
+Was in AI Brain eingerichtet ist, kennt der Harness ohne eine Zeile
+Integrationscode: Server samt Host, Nutzer, Port und letztem Zustand;
+Zugangsdaten projektübergreifend; Modellkonten; Mailkonten; Projekte, Aufgaben,
+Fehler, Gedächtnis, Wiki, Vault. Eine neue Fähigkeit ist deshalb fast immer ein
+neues Werkzeug **in AI Brain**, nicht Code hier — dort nützt es gleichzeitig
+allen Rechnern, allen Channels und allen angebundenen Produkten.
+
+### Die Rechte sind der unterschätzte Teil
+
+Der Harness meldet sich über OAuth an und **ist** dabei eine Person. Läuft er
+als Bastian, hat er genau Bastians Rechte — nicht mehr. Damit ist die
+Rechtefrage gelöst, bevor sie gestellt wird: keine zweite Rechteverwaltung, und
+ein Harness auf dem Rechner einer Mitarbeiterin kommt nur an das, was sie sehen
+darf. Bei Pi und Hermes gibt es diese Ebene nicht; bei OpenClaw hängt sie am
+jeweiligen Plugin.
+
+### Zwei Werkzeugserver in derselben Hand
+
+Ein Zug der Maske hat beides zugleich:
+
+```
+            ┌─────────────────────────────┐
+  brain ───▶│  Maske  (maske.rs)          │
+            │  Eingabe · Darstellung      │
+            └──────────┬──────────────────┘
+                       │  pro Zug
+            ┌──────────▼──────────────────┐
+            │  Motor (gemietet)           │
+            └─────┬───────────────┬───────┘
+                  │               │
+        ┌─────────▼──────┐  ┌─────▼──────────────┐
+        │  ai-brain      │  │  rechner           │
+        │  (mcp)         │  │  (rechner-mcp)     │
+        │                │  │                    │
+        │  Server        │  │  Dienste           │
+        │  Zugangsdaten  │  │  Datenträger       │
+        │  Aufgaben      │  │  Last · VRAM       │
+        │  Gedächtnis    │  │  Befehle           │
+        │  Mail · Vault  │  │  Bildschirm        │
+        │  Rechtefenster │  │  Fenster · Tasten  │
+        └────────────────┘  └────────────────────┘
+```
+
+Das war die Trennung, an der es vorher scheiterte: Hermes konnte die Maschine,
+aber nicht unsere Daten. Die Werkzeuge von AI Brain konnten unsere Daten, aber
+nicht die Maschine. Und ein Channel in seinem Docker-Container kommt
+grundsätzlich nur an sein eigenes Dateisystem — der Harness läuft **auf** dem
+Rechner.
+
+### Was noch fehlt
+
+Der **eigene Loop**. Heute wird der Motor pro Zug gerufen (`claude -p`), und das
+Gespräch hält die Sitzungskennung zusammen. Oberfläche, Werkzeuge, Verlauf und
+Buchführung gehören uns; das Rechnen ist eingekauft. Ein eigener Loop braucht
+einen eigenen Modellzugang — eine Kostenentscheidung, die nicht beim Bauen
+fallen soll. Die Trennung sitzt deshalb an einer einzigen Stelle
+(`maske.rs::motor_args`), damit sie sich tauschen lässt.
+
+### Belege
+
+Hermes ist auf dem Hauptrechner gemessen (Werkzeugliste, Ablage,
+`unavailable_toolsets`). Pi und OpenClaw sind aus deren öffentlicher
+Dokumentation belegt:
+
+- [Pi: The Minimal Agent Within OpenClaw](https://lucumr.pocoo.org/2026/1/31/pi/)
+- [Pi Agent Extensions: Change the Harness, Not Just the Prompt](https://www.aibuilderclub.com/blog/pi-agent-extensions-guide)
+- [Agent runtime architecture · OpenClaw](https://docs.openclaw.ai/agent-runtime-architecture)
+- [OpenClaw Architecture — Tools, Plugins, and Capability Boundaries](https://theagentstack.substack.com/p/openclaw-architecture-part-5-tools)
+- [Harness Engineering: Anatomy, Architecture, and Evolution of Coding Agents — A Source-Code Study of Eleven Systems](https://arxiv.org/pdf/2609.00006)
 
 ## Was dabei passiert
 
