@@ -202,7 +202,13 @@ fn schicken(
         .to_string())
 }
 
-/// `erinnerungen [--projekt X] [--verzeichnis P] [--apply]`
+/// `erinnerungen [--projekt X] [--verzeichnis P] [--apply] [--still]`
+///
+/// **`--still`** haelt den Bericht zurueck und meldet nur, wenn etwas bewegt
+/// wurde. Dafuer gedacht, dass der Abgleich beim Aufgehen der Maske laeuft:
+/// ein zehnzeiliger Bericht bei jedem Start wird nach drei Tagen uebersehen —
+/// und was uebersehen wird, braucht man nicht zu drucken. Stillschweigen gilt
+/// nur fuer den Normalfall; Konflikte und Fehlschlaege stehen weiterhin da.
 pub fn abgleichen(args: &[String]) -> Result<(), String> {
     let wert = |n: &str| -> Option<String> {
         args.iter()
@@ -213,6 +219,7 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
     };
 
     let anwenden = args.iter().any(|a| a == "--apply");
+    let still = args.iter().any(|a| a == "--still");
 
     // Zwei ausdrueckliche Richtungen statt eines mehrdeutigen `--force`: Bei
     // einem Konflikt muss jemand SAGEN, welche Seite gilt. Ein Schalter, der
@@ -277,18 +284,20 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
         }
     }
 
-    println!(
-        "Gedächtnis {} · {}",
-        projekt.as_deref().unwrap_or("(ohne Projekt)"),
-        pfad.display()
-    );
-    println!();
-    println!("  hier, noch nicht dort : {}", neu_dort.len());
-    println!("  dort, noch nicht hier : {}", neu_hier.len());
-    println!("  beidseitig geändert   : {}", konflikt.len());
-    println!("  gleich                : {}", gleich.len());
+    if !still {
+        println!(
+            "Gedächtnis {} · {}",
+            projekt.as_deref().unwrap_or("(ohne Projekt)"),
+            pfad.display()
+        );
+        println!();
+        println!("  hier, noch nicht dort : {}", neu_dort.len());
+        println!("  dort, noch nicht hier : {}", neu_hier.len());
+        println!("  beidseitig geändert   : {}", konflikt.len());
+        println!("  gleich                : {}", gleich.len());
+    }
 
-    if !neu_hier.is_empty() {
+    if !neu_hier.is_empty() && !still {
         println!();
         println!("Kommt von AI Brain:");
 
@@ -322,8 +331,10 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
     }
 
     if !anwenden {
-        println!();
-        println!("Nichts geschrieben. Mit --apply anwenden.");
+        if !still {
+            println!();
+            println!("Nichts geschrieben. Mit --apply anwenden.");
+        }
 
         return Ok(());
     }
@@ -415,12 +426,15 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
 
     stand_schreiben(&neuer_stand);
 
-    println!();
-    println!(
-        "{} geholt, {} zurückgegeben.",
-        neu_hier.len(),
-        neu_dort.len() - gescheitert.len()
-    );
+    let zurueck = neu_dort.len() - gescheitert.len();
+
+    if !still || neu_hier.len() + zurueck > 0 {
+        if !still {
+            println!();
+        }
+
+        println!("{} geholt, {zurueck} zurückgegeben.", neu_hier.len());
+    }
 
     if !gescheitert.is_empty() {
         println!();

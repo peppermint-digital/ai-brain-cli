@@ -28,9 +28,11 @@ mod erinnerungen;
 mod freigabe;
 mod imkr;
 mod frage;
+mod maske;
 mod mcp;
 mod nachricht;
 mod pairing;
+mod rechner;
 mod register;
 mod select;
 mod sync;
@@ -162,12 +164,21 @@ fn main() -> ExitCode {
     let result = match args.first().map(String::as_str) {
         Some("connect") => pairing::connect(&args[1..]),
         Some("mcp") => mcp::serve(),
+        Some("rechner-mcp") => rechner::serve(),
         Some("sync") => sync::run(&args[1..]),
         Some("select") => select::run(&args[1..]),
         Some("publish") => sync::publish(&args[1..]),
         Some("agent") => agent::starten(&args[1..]),
         Some("freigabe") => freigabe::verwalten(&args[1..]),
-        Some("chat") => chat::starten(&args[1..]),
+        // Die Maske ist der Normalfall; `--durchreichen` gibt das Terminal
+        // wie fruehr direkt an das Werkzeug ab.
+        Some("chat") | Some("maske") => {
+            if args[1..].iter().any(|a| a == "--durchreichen") {
+                chat::starten(&args[1..])
+            } else {
+                maske::starten(&args[1..])
+            }
+        }
         Some("agents") => register::anzeigen(&args[1..]),
         Some("aufgaben") => aufgaben::anzeigen(&args[1..]),
         Some("erinnerungen") => erinnerungen::abgleichen(&args[1..]),
