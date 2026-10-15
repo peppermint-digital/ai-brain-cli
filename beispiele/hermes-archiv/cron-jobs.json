@@ -1,0 +1,82 @@
+{
+  "jobs": [
+    {
+      "id": "68034981234a",
+      "name": "AI Brain Avatar/TTS Watchdog",
+      "prompt": "",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "ai-brain-avatar-tts-watchdog.sh",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 30,
+        "display": "every 30m"
+      },
+      "schedule_display": "every 30m",
+      "repeat": {
+        "times": null,
+        "completed": 1422
+      },
+      "enabled": false,
+      "state": "paused",
+      "paused_at": "2026-07-05T10:12:50.522536+02:00",
+      "paused_reason": null,
+      "created_at": "2026-06-05T11:44:17.727773+02:00",
+      "next_run_at": "2026-07-05T10:19:05.699257+02:00",
+      "last_run_at": "2026-07-05T09:49:05.699257+02:00",
+      "last_status": "ok",
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": null,
+      "enabled_toolsets": null,
+      "workdir": null,
+      "profile": null,
+      "fire_claim": null
+    },
+    {
+      "id": "a3a29ae2cf8e",
+      "name": "Backup Server BIG DATA watchdog",
+      "prompt": "",
+      "skills": [],
+      "skill": null,
+      "model": null,
+      "provider": null,
+      "base_url": null,
+      "script": "backup-server-bigdata-watchdog.py",
+      "no_agent": true,
+      "context_from": null,
+      "schedule": {
+        "kind": "interval",
+        "minutes": 30,
+        "display": "every 30m"
+      },
+      "schedule_display": "every 30m",
+      "repeat": {
+        "times": null,
+        "completed": 0
+      },
+      "enabled": false,
+      "state": "paused",
+      "paused_at": "2026-06-30T15:40:54.112510+02:00",
+      "paused_reason": null,
+      "created_at": "2026-06-30T15:27:44.686968+02:00",
+      "next_run_at": "2026-06-30T15:57:53.645663+02:00",
+      "last_run_at": null,
+      "last_status": null,
+      "last_error": null,
+      "last_delivery_error": null,
+      "deliver": "origin",
+      "origin": null,
+      "enabled_toolsets": null,
+      "workdir": null,
+      "profile": null
+    }
+  ],
+  "updated_at": "2026-07-05T10:12:50.522751+02:00"
+}
