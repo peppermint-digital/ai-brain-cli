@@ -8,6 +8,10 @@
 //! Bedienung bewusst über Nummern statt Pfeiltasten: Das läuft über SSH, im
 //! Windows-Terminal und in jedem Terminal gleich, und es kostet keine
 //! Abhängigkeit.
+//!
+//! MCP-Server (Typ `mcp`) sind Befehle, die von selbst laufen. Sie gehören
+//! nie zu „alles" — weder hier noch auf der Instanz. Wer einen will, hakt ihn
+//! einzeln an; die Wahl bleibt in `slugs` erhalten, auch im Modus „alles".
 
 use crate::config::{self, Connection};
 use crate::mcp;
@@ -20,10 +24,66 @@ const SETZEN: &str = "set-device-selection-tool";
 const MODUS_ALLES: &str = "alles";
 const MODUS_AUSWAHL: &str = "auswahl";
 
+const TYP_MCP: &str = "mcp";
+
 struct Eintrag {
     slug: String,
     typ: String,
     name: String,
+}
+
+impl Eintrag {
+    fn ist_mcp(&self) -> bool {
+        self.typ == TYP_MCP
+    }
+}
+
+/// Was dieser Rechner AUSDRÜCKLICH gewählt hat — unabhängig vom Modus.
+///
+/// Für `sync`: MCP-Server werden nur eingetragen, wenn sie hier stehen. Der
+/// Modus „alles" zählt dafür nicht.
+pub fn ausdruecklich_gewaehlt(connection: &Connection, token: &str) -> Result<BTreeSet<String>, String> {
+    let stand = mcp::call_tool(
+        connection,
+        token,
+        HOLEN,
+        serde_json::json!({ "catalogue": false, "device": "" }),
+    )?;
+
+    Ok(slugs_lesen(&stand))
+}
+
+fn slugs_lesen(stand: &serde_json::Value) -> BTreeSet<String> {
+    stand
+        .get("slugs")
+        .and_then(|s| s.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Die Liste, die gespeichert wird. Im Modus „alles" nur die MCP-Server —
+/// alles andere ist dort ohnehin dabei, die Server aber nie von selbst.
+fn zu_speichern(modus: &str, gewaehlt: &BTreeSet<String>, katalog: &[Eintrag]) -> Vec<String> {
+    if modus != MODUS_ALLES {
+        return gewaehlt.iter().cloned().collect();
+    }
+
+    let mcp: BTreeSet<&str> = katalog
+        .iter()
+        .filter(|e| e.ist_mcp())
+        .map(|e| e.slug.as_str())
+        .collect();
+
+    gewaehlt
+        .iter()
+        .filter(|s| mcp.contains(s.as_str()))
+        .cloned()
+        .collect()
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -73,16 +133,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     )?;
 
     let katalog = katalog_lesen(&stand);
-    let mut gewaehlt: BTreeSet<String> = stand
-        .get("slugs")
-        .and_then(|s| s.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut gewaehlt: BTreeSet<String> = slugs_lesen(&stand);
 
     let mut modus = stand
         .get("mode")
@@ -99,7 +150,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Nicht-interaktive Wege zuerst: Sie gelten auch ohne Terminal und sind
     // der Weg für Skripte und Agenten.
     if alles {
-        return speichern(&connection, &token, &geraet, MODUS_ALLES, &[], &geraetename);
+        // Gewählte MCP-Server bleiben gewählt — „alles" schaltet sie weder
+        // ein noch aus.
+        let liste = zu_speichern(MODUS_ALLES, &gewaehlt, &katalog);
+
+        return speichern(&connection, &token, &geraet, MODUS_ALLES, &liste, &geraetename);
     }
 
     if let Some(liste) = setzen {
@@ -154,7 +209,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
         match eingabe {
             "" => {
-                let liste: Vec<String> = gewaehlt.iter().cloned().collect();
+                let liste = zu_speichern(&modus, &gewaehlt, &katalog);
 
                 return speichern(&connection, &token, &geraet, &modus, &liste, &geraetename);
             }
@@ -202,14 +257,20 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 for teil in eingabe.split_whitespace() {
                     match teil.parse::<usize>() {
                         Ok(n) if n >= 1 && n <= katalog.len() => {
-                            let slug = katalog[n - 1].slug.clone();
+                            let eintrag = &katalog[n - 1];
+                            let slug = eintrag.slug.clone();
                             if !gewaehlt.remove(&slug) {
                                 gewaehlt.insert(slug);
                             }
                             // Sobald jemand einzeln wählt, ist „alles“ nicht
                             // mehr gemeint — sonst hakt man an und nichts ändert
-                            // sich, weil ohnehin alles gilt.
-                            modus = MODUS_AUSWAHL.to_string();
+                            // sich, weil ohnehin alles gilt. MCP-Server sind
+                            // davon ausgenommen: Die gehören nie zu „alles“,
+                            // einen anzuhaken heisst also nicht, den Rest
+                            // abzuwählen.
+                            if !eintrag.ist_mcp() {
+                                modus = MODUS_AUSWAHL.to_string();
+                            }
                         }
                         _ => unbekannt.push(teil.to_string()),
                     }
@@ -271,7 +332,11 @@ fn zeigen(geraet: &str, modus: &str, gewaehlt: &BTreeSet<String>, katalog: &[Ein
     for (i, e) in katalog.iter().enumerate() {
         if e.typ != letzter_typ {
             println!();
-            println!("{}", e.typ.to_uppercase());
+            if e.ist_mcp() {
+                println!("MCP-SERVER — nur einzeln, „alles“ nimmt sie nie mit");
+            } else {
+                println!("{}", e.typ.to_uppercase());
+            }
             letzter_typ = e.typ.clone();
         }
 
@@ -324,4 +389,39 @@ fn speichern(
     println!("Wirksam wird das beim naechsten Abgleich:  ai-brain-harness sync --apply");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn eintrag(slug: &str, typ: &str) -> Eintrag {
+        Eintrag {
+            slug: slug.to_string(),
+            typ: typ.to_string(),
+            name: slug.to_string(),
+        }
+    }
+
+    #[test]
+    fn alles_speichert_nur_die_gewaehlten_mcp_server() {
+        let katalog = vec![
+            eintrag("brain", "skill"),
+            eintrag("fertig", "skill"),
+            eintrag("playwright", "mcp"),
+            eintrag("chrome-devtools", "mcp"),
+        ];
+        let gewaehlt: BTreeSet<String> = ["brain", "playwright"].iter().map(|s| s.to_string()).collect();
+
+        assert_eq!(zu_speichern(MODUS_ALLES, &gewaehlt, &katalog), vec!["playwright"]);
+
+        // Im Modus „auswahl" gilt die Liste, wie sie ist.
+        assert_eq!(
+            zu_speichern(MODUS_AUSWAHL, &gewaehlt, &katalog),
+            vec!["brain", "playwright"]
+        );
+
+        // Nichts gewählt: „alles" nimmt keinen Server mit.
+        assert!(zu_speichern(MODUS_ALLES, &BTreeSet::new(), &katalog).is_empty());
+    }
 }

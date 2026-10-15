@@ -63,9 +63,9 @@ Schalter fuer `agent`:
 
 | Befehl | Was |
 |---|---|
-| sync [--apply] | Skills und Agents aus dem Repository holen. Ohne --apply wird nur gezeigt. |
+| sync [--apply] | Skills und Agents aus dem Repository holen, einzeln gewaehlte MCP-Server in Claude Code und Codex eintragen. Ohne --apply wird nur gezeigt. |
 | publish <name> | Einen lokalen Eintrag zurueckgeben. |
-| select | Waehlen, welche Eintraege dieser Rechner bekommt. |
+| select | Waehlen, welche Eintraege dieser Rechner bekommt. MCP-Server nur einzeln, nie ueber „alles“. |
 
 Weitere Schalter fuer `sync`: `--only`, `--force`,
 `--aufraeumen`, `--ja`.

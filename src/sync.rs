@@ -14,6 +14,9 @@
 //! * Hooks werden **nie** eingerichtet. Ein Hook ist kein Dateibestand, sondern
 //!   ein Befehl in der `settings.json`, der von selbst ausgeführt wird. „Ziehen
 //!   ist harmlos, weil es nur ergänzt" gilt für Dateien — hier nicht.
+//! * MCP-Server (Typ `mcp`) sind ebenfalls Befehle. Sie werden nur
+//!   eingetragen, wenn dieser Rechner sie **einzeln** gewählt hat — nie über
+//!   „alles". Die Regeln dafür stehen in `mcp_eintraege`.
 //!
 //! ## Wie Änderungen erkannt werden
 //!
@@ -29,6 +32,7 @@
 //! jeweils gegen den eigenen Wert — nie über die Sprachgrenze.
 
 use crate::config::{self, Connection};
+use crate::mcp_eintraege::{self, Lage};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
@@ -134,7 +138,30 @@ struct SyncState {
 #[derive(Debug, Serialize, Deserialize)]
 struct SyncedItem {
     remote_checksum: String,
+    /// Hash über das Verzeichnis — bei MCP-Servern leer, die stehen in `orte`.
+    #[serde(default)]
     local_hash: String,
+    /// Nur MCP-Server: je Ort (Pfad einer Claude-Konfiguration oder `codex`)
+    /// der eigene Hash über den Eintrag, wie der Harness ihn geschrieben hat.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    orte: BTreeMap<String, String>,
+}
+
+/// Ein MCP-Server und wie es an jedem Ort um ihn steht.
+struct McpPlan {
+    item: ManifestItem,
+    definition: mcp_eintraege::Definition,
+    orte: Vec<McpOrt>,
+}
+
+struct McpOrt {
+    /// Schlüssel im Abgleichstand: Pfad der Konfiguration oder `codex`.
+    ort: String,
+    /// `None` bei Codex.
+    pfad: Option<PathBuf>,
+    vorhanden: Option<serde_json::Value>,
+    gewuenscht: serde_json::Value,
+    lage: Lage,
 }
 
 /// Was mit einem Eintrag zu tun ist.
@@ -204,6 +231,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Einträge, die schon richtig auf der Platte liegen: nur in den Stand
     // aufnehmen, nicht schreiben.
     let mut uebernehmen: Vec<(String, ItemDetail, PathBuf)> = Vec::new();
+    let mut mcp_kandidaten: Vec<ManifestItem> = Vec::new();
 
     for item in &manifest.items {
         if let Some(filter) = &only {
@@ -221,6 +249,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 "Uebersprungen: ein Eintrag vom Typ {} hat keinen Namen — auf der Instanz nachtragen.",
                 item.kind
             );
+            continue;
+        }
+
+        // MCP-Server werden weiter unten geplant — erst muss feststehen, was
+        // dieser Rechner ausdrücklich gewählt hat.
+        if item.kind == "mcp" {
+            mcp_kandidaten.push(item.clone());
             continue;
         }
 
@@ -320,11 +355,173 @@ pub fn run(args: &[String]) -> Result<(), String> {
                 SyncedItem {
                     remote_checksum: detail.checksum.clone(),
                     local_hash: hash_directory(target)?,
+                    orte: BTreeMap::new(),
                 },
             );
         }
 
         save_state(&state)?;
+    }
+
+    // ------------------------------------------------------ MCP-Server ----
+    //
+    // Was ausdrücklich gewählt ist, fragt der Harness selbst noch einmal bei
+    // der Instanz nach, statt sich allein auf das Manifest zu verlassen: Ein
+    // Server, der über „alles" hereinrutscht, liefe auf diesem Rechner, ohne
+    // dass ihn hier jemand angefordert hat.
+    let mcp_bekannt = state.items.keys().any(|k| k.starts_with("mcp/"));
+    let mcp_im_manifest = manifest.items.iter().any(|i| i.kind == "mcp");
+
+    let gewaehlt: Option<BTreeSet<String>> = if mcp_bekannt || mcp_im_manifest {
+        match crate::select::ausdruecklich_gewaehlt(&connection, &token) {
+            Ok(liste) => Some(liste),
+            Err(err) => {
+                eprintln!("Auswahl dieses Rechners nicht abrufbar — MCP-Server bleiben unangetastet: {err}");
+                None
+            }
+        }
+    } else {
+        Some(BTreeSet::new())
+    };
+
+    let browser = mcp_eintraege::browser_finden();
+    let claude_orte = mcp_eintraege::claude_konfigurationen(
+        &crate::config::heimat()?,
+        std::env::var_os("CLAUDE_CONFIG_DIR").map(PathBuf::from).as_deref(),
+    );
+    let codex_da = mcp_eintraege::codex_vorhanden();
+
+    let mut mcp_plan: Vec<McpPlan> = Vec::new();
+    let mut mcp_nicht_gewaehlt: Vec<ManifestItem> = Vec::new();
+    let mut mcp_fehlgeschlagen = 0usize;
+
+    for item in &mcp_kandidaten {
+        let ausdruecklich = gewaehlt.as_ref().map(|g| g.contains(&item.slug)).unwrap_or(false);
+
+        if !ausdruecklich {
+            mcp_nicht_gewaehlt.push(item.clone());
+            continue;
+        }
+
+        let definition = match fetch_bundle_roh(&connection, &token, &item.kind, &item.slug)
+            .and_then(|b| mcp_eintraege::definition_lesen(&b).map_err(|e| format!("mcp/{}: {e}", item.slug)))
+        {
+            Ok(d) => d,
+            Err(err) => {
+                eprintln!("Uebersprungen: {err}");
+                mcp_fehlgeschlagen += 1;
+                continue;
+            }
+        };
+
+        let key = format!("mcp/{}", item.slug);
+        let bekannt = state.items.get(&key);
+        let fern_gleich = bekannt.map(|b| b.remote_checksum == item.checksum).unwrap_or(false);
+
+        let mut orte: Vec<McpOrt> = Vec::new();
+
+        if definition.fuer_claude() {
+            let gewuenscht = definition.claude_eintrag(browser.as_deref());
+
+            for pfad in &claude_orte {
+                let ort = pfad.to_string_lossy().to_string();
+                let vorhanden = mcp_eintraege::claude_lesen(pfad, &item.slug)?;
+                let lage = mcp_eintraege::urteilen(
+                    vorhanden.as_ref(),
+                    &gewuenscht,
+                    bekannt.and_then(|b| b.orte.get(&ort)).map(String::as_str),
+                    fern_gleich,
+                );
+
+                orte.push(McpOrt { ort, pfad: Some(pfad.clone()), vorhanden, gewuenscht: gewuenscht.clone(), lage });
+            }
+        }
+
+        if definition.fuer_codex() && codex_da {
+            let gewuenscht = definition.codex_eintrag(browser.as_deref());
+            let vorhanden = mcp_eintraege::codex_lesen(&item.slug)?;
+            let lage = mcp_eintraege::urteilen(
+                vorhanden.as_ref(),
+                &gewuenscht,
+                bekannt.and_then(|b| b.orte.get(mcp_eintraege::CODEX)).map(String::as_str),
+                fern_gleich,
+            );
+
+            orte.push(McpOrt {
+                ort: mcp_eintraege::CODEX.to_string(),
+                pfad: None,
+                vorhanden,
+                gewuenscht,
+                lage,
+            });
+        }
+
+        mcp_plan.push(McpPlan { item: item.clone(), definition, orte });
+    }
+
+    // Wie bei Dateien: Was schon genau so dasteht, wird ohne Schreiben in den
+    // Stand übernommen — auch ohne --apply.
+    let mut mcp_uebernommen = false;
+
+    for plan in &mcp_plan {
+        for ort in plan.orte.iter().filter(|o| o.lage == Lage::Uebernommen) {
+            if let Some(vorhanden) = &ort.vorhanden {
+                stand_merken(&mut state, &plan.item, &ort.ort, vorhanden);
+                mcp_uebernommen = true;
+            }
+        }
+    }
+
+    if mcp_uebernommen {
+        save_state(&state)?;
+    }
+
+    // Nicht mehr gewählte MCP-Server: nur was der Harness selbst geschrieben
+    // hat und was seither unverändert dasteht. Ohne verlässliche Auswahl wird
+    // hier gar nichts entschieden.
+    let mut mcp_ueberzaehlig: Vec<(String, Vec<(String, Option<PathBuf>)>)> = Vec::new();
+
+    if let Some(gewaehlt) = &gewaehlt {
+        let aktiv: BTreeSet<String> = manifest
+            .items
+            .iter()
+            .filter(|i| i.kind == "mcp" && gewaehlt.contains(&i.slug))
+            .map(|i| format!("mcp/{}", i.slug))
+            .collect();
+
+        for (key, bekannt) in state.items.iter().filter(|(k, _)| k.starts_with("mcp/")) {
+            if aktiv.contains(key) {
+                continue;
+            }
+
+            let slug = &key["mcp/".len()..];
+            let mut weg: Vec<(String, Option<PathBuf>)> = Vec::new();
+
+            for (ort, hash) in &bekannt.orte {
+                let (vorhanden, pfad) = if ort == mcp_eintraege::CODEX {
+                    if !codex_da {
+                        continue;
+                    }
+                    (mcp_eintraege::codex_lesen(slug)?, None)
+                } else {
+                    let pfad = PathBuf::from(ort);
+                    (mcp_eintraege::claude_lesen(&pfad, slug)?, Some(pfad))
+                };
+
+                if vorhanden.is_none() {
+                    continue;
+                }
+
+                if mcp_eintraege::entfernbar(vorhanden.as_ref(), hash) {
+                    weg.push((ort.clone(), pfad));
+                } else {
+                    println!();
+                    println!("Nicht mehr ausgewaehlt, aber hier geaendert — bleibt liegen: {key} in {ort}");
+                }
+            }
+
+            mcp_ueberzaehlig.push((key.clone(), weg));
+        }
     }
 
     // Was die CLI einmal geschrieben hat, jetzt aber nicht mehr im
@@ -343,7 +540,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut ueberzaehlig: Vec<(String, PathBuf)> = Vec::new();
 
     for (key, bekannt) in &state.items {
-        if im_manifest.contains(key) {
+        if im_manifest.contains(key) || key.starts_with("mcp/") {
             continue;
         }
 
@@ -383,14 +580,38 @@ pub fn run(args: &[String]) -> Result<(), String> {
         }
     }
 
+    let mcp_weg: usize = mcp_ueberzaehlig.iter().map(|(_, w)| w.len()).sum();
+
+    if mcp_weg > 0 {
+        println!();
+        println!("MCP-Server nicht mehr ausgewaehlt ({mcp_weg} Eintrag/Eintraege)");
+
+        if !aufraeumen {
+            println!("  bleibt eingetragen — mit --aufraeumen austragen");
+        }
+
+        for (key, weg) in &mcp_ueberzaehlig {
+            for (ort, _) in weg {
+                println!("  - {key} in {ort}");
+            }
+        }
+    }
+
     report(&plan);
+    report_mcp(&mcp_plan, &mcp_nicht_gewaehlt);
 
     // Ein ausdrückliches --apply beantwortet die Frage schon; gefragt wird nur,
     // wenn jemand da ist, der antworten kann.
     if !apply && crate::frage::darf_fragen(zugestimmt) {
         let etwas_zu_tun = plan.iter().any(|(_, v, _)| {
             matches!(v, Verdict::Neu | Verdict::Aktualisiert | Verdict::Konflikt | Verdict::Fremd)
-        }) || !ueberzaehlig.is_empty();
+        }) || !ueberzaehlig.is_empty()
+            || mcp_weg > 0
+            || mcp_plan.iter().any(|p| {
+                p.orte.iter().any(|o| {
+                    matches!(o.lage, Lage::Neu | Lage::Aktualisiert | Lage::Konflikt | Lage::Fremd)
+                })
+            });
 
         if etwas_zu_tun {
             println!();
@@ -470,20 +691,93 @@ pub fn run(args: &[String]) -> Result<(), String> {
             SyncedItem {
                 remote_checksum: detail.checksum.clone(),
                 local_hash: hash_directory(target)?,
+                orte: BTreeMap::new(),
             },
         );
 
         geschrieben += 1;
     }
 
+    // MCP-Server: je Ort entscheiden, aber je Server nur EINMAL fragen —
+    // drei Claude-Konten sollen nicht dreimal dieselbe Frage auslösen.
+    let mut gesichert: BTreeSet<PathBuf> = BTreeSet::new();
+
+    for plan in &mcp_plan {
+        let strittig: Vec<&McpOrt> = plan
+            .orte
+            .iter()
+            .filter(|o| matches!(o.lage, Lage::Konflikt | Lage::Fremd))
+            .collect();
+
+        let strittige_schreiben = if strittig.is_empty() {
+            false
+        } else if force {
+            true
+        } else if !crate::frage::darf_fragen(zugestimmt) {
+            false
+        } else {
+            entscheiden_mcp(plan, &strittig)?
+        };
+
+        for ort in &plan.orte {
+            let schreiben = match ort.lage {
+                Lage::Neu | Lage::Aktualisiert => true,
+                Lage::Konflikt | Lage::Fremd => strittige_schreiben,
+                _ => false,
+            };
+
+            if !schreiben {
+                if matches!(ort.lage, Lage::Konflikt | Lage::Fremd) {
+                    uebersprungen += 1;
+                }
+                continue;
+            }
+
+            let ergebnis = match &ort.pfad {
+                Some(pfad) => mcp_eintraege::claude_schreiben(pfad, &plan.item.slug, Some(&ort.gewuenscht), &mut gesichert),
+                None => {
+                    // Codex hat keine Datei, die wir sichern koennten — die
+                    // alte Angabe wird deshalb daneben abgelegt.
+                    if let Some(alt) = &ort.vorhanden {
+                        mcp_sicherung_ablegen(&plan.item.slug, alt)?;
+                    }
+                    mcp_eintraege::codex_schreiben(&plan.item.slug, &plan.definition, browser.as_deref())
+                }
+            };
+
+            match ergebnis {
+                Ok(()) => {
+                    // Nachlesen statt annehmen: Codex legt den Eintrag selbst
+                    // ab, und nur was wirklich dasteht, taugt als Vergleichswert.
+                    let steht = match &ort.pfad {
+                        Some(pfad) => mcp_eintraege::claude_lesen(pfad, &plan.item.slug)?,
+                        None => mcp_eintraege::codex_lesen(&plan.item.slug)?,
+                    };
+
+                    stand_merken(&mut state, &plan.item, &ort.ort, steht.as_ref().unwrap_or(&ort.gewuenscht));
+                    geschrieben += 1;
+                }
+                Err(err) => {
+                    eprintln!("Uebersprungen: mcp/{} in {}: {err}", plan.item.slug, ort.ort);
+                    fehlgeschlagen += 1;
+                }
+            }
+        }
+    }
+
+    fehlgeschlagen += mcp_fehlgeschlagen;
+
     // Entfernen ist die einzige Handlung, die etwas wegnimmt — dafür wird
     // ausdrücklich gefragt, und die Vorgabe ist Nein.
-    if !aufraeumen && !ueberzaehlig.is_empty() && crate::frage::darf_fragen(zugestimmt) {
+    if !aufraeumen
+        && (!ueberzaehlig.is_empty() || mcp_weg > 0)
+        && crate::frage::darf_fragen(zugestimmt)
+    {
         println!();
         aufraeumen = crate::frage::ja_nein(
             &format!(
                 "{} nicht mehr ausgewaehlte Eintraege entfernen?",
-                ueberzaehlig.len()
+                ueberzaehlig.len() + mcp_weg
             ),
             false,
         )?;
@@ -496,6 +790,39 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
             state.items.remove(key);
             entfernt += 1;
+        }
+
+        for (key, weg) in &mcp_ueberzaehlig {
+            let slug = &key["mcp/".len()..];
+            let mut alle_weg = true;
+
+            for (ort, pfad) in weg {
+                let ergebnis = match pfad {
+                    Some(pfad) => mcp_eintraege::claude_schreiben(pfad, slug, None, &mut gesichert),
+                    None => mcp_eintraege::codex_entfernen(slug),
+                };
+
+                match ergebnis {
+                    Ok(()) => {
+                        if let Some(bekannt) = state.items.get_mut(key) {
+                            bekannt.orte.remove(ort);
+                        }
+                        entfernt += 1;
+                    }
+                    Err(err) => {
+                        eprintln!("{key} in {ort} nicht austragbar: {err}");
+                        alle_weg = false;
+                    }
+                }
+            }
+
+            // Was hier geaendert wurde, bleibt im Stand — sonst gilt es beim
+            // naechsten Lauf als fremd, obwohl der Harness es einmal schrieb.
+            let leer = state.items.get(key).map(|b| b.orte.is_empty()).unwrap_or(true);
+
+            if alle_weg && leer {
+                state.items.remove(key);
+            }
         }
     }
 
@@ -671,6 +998,129 @@ fn kuerzen(zeile: &str) -> String {
     format!("{}…", z.chars().take(96).collect::<String>())
 }
 
+/// Merkt sich für einen Ort, wie der Eintrag dort jetzt steht.
+fn stand_merken(state: &mut SyncState, item: &ManifestItem, ort: &str, wert: &serde_json::Value) {
+    let eintrag = state
+        .items
+        .entry(format!("mcp/{}", item.slug))
+        .or_insert_with(|| SyncedItem {
+            remote_checksum: item.checksum.clone(),
+            local_hash: String::new(),
+            orte: BTreeMap::new(),
+        });
+
+    eintrag.remote_checksum = item.checksum.clone();
+    eintrag.orte.insert(ort.to_string(), mcp_eintraege::eintrag_hash(wert));
+}
+
+/// Legt eine Codex-Angabe, die gleich ersetzt wird, in die gesicherten Fassungen.
+fn mcp_sicherung_ablegen(slug: &str, wert: &serde_json::Value) -> Result<(), String> {
+    let ziel = backup_dir()?.join("mcp").join(format!("{slug}-codex.json"));
+
+    if let Some(eltern) = ziel.parent() {
+        fs::create_dir_all(eltern)
+            .map_err(|e| format!("{} lässt sich nicht anlegen: {e}", eltern.display()))?;
+    }
+
+    let json = serde_json::to_string_pretty(wert).unwrap_or_default();
+    fs::write(&ziel, json).map_err(|e| format!("{} lässt sich nicht schreiben: {e}", ziel.display()))?;
+    println!("  Bisherige Codex-Angabe gesichert: {}", ziel.display());
+
+    Ok(())
+}
+
+/// Was mit einem strittigen MCP-Server geschehen soll — einmal je Server.
+fn entscheiden_mcp(plan: &McpPlan, strittig: &[&McpOrt]) -> Result<bool, String> {
+    println!();
+    println!(
+        "mcp {} — steht an {} Ort(en) anders, als die Instanz ihn vorsieht",
+        plan.item.slug,
+        strittig.len()
+    );
+
+    loop {
+        match crate::frage::auswahl(
+            "Was damit tun?",
+            &[
+                ('b', "behalten — die hiesigen Eintraege bleiben"),
+                ('u', "ueberschreiben — die Fassung der Instanz gilt (vorher gesichert)"),
+                ('d', "Unterschied ansehen"),
+            ],
+            'b',
+        )? {
+            'b' => return Ok(false),
+            'u' => return Ok(true),
+            _ => {
+                for ort in strittig {
+                    println!();
+                    println!("  {}", ort.ort);
+                    println!(
+                        "    hier    : {}",
+                        ort.vorhanden
+                            .as_ref()
+                            .map(|v| v.to_string())
+                            .unwrap_or_else(|| "—".to_string())
+                    );
+                    println!("    Instanz : {}", ort.gewuenscht);
+                }
+                println!();
+            }
+        }
+    }
+}
+
+fn report_mcp(plan: &[McpPlan], nicht_gewaehlt: &[ManifestItem]) {
+    let zeilen: Vec<(String, &str)> = plan
+        .iter()
+        .flat_map(|p| {
+            p.orte
+                .iter()
+                .filter(|o| o.lage != Lage::Unveraendert)
+                .map(move |o| {
+                    let lage = match o.lage {
+                        Lage::Neu => "neu",
+                        Lage::Aktualisiert => "aktualisiert",
+                        Lage::LokalGeaendert => "hier geändert — bleibt",
+                        Lage::Konflikt => "Konflikt — ohne --force nicht angefasst",
+                        Lage::Fremd => "fremder Eintrag gleichen Namens — ohne --force nicht angefasst",
+                        Lage::Uebernommen => "stand schon richtig da",
+                        Lage::Unveraendert => "unverändert",
+                    };
+                    (format!("{} in {}", p.item.slug, o.ort), lage)
+                })
+        })
+        .collect();
+
+    if !zeilen.is_empty() {
+        println!();
+        println!("MCP-Server ({})", zeilen.len());
+
+        for (wo, lage) in &zeilen {
+            println!("  - {wo}: {lage}");
+        }
+    }
+
+    let unveraendert: usize = plan
+        .iter()
+        .map(|p| p.orte.iter().filter(|o| o.lage == Lage::Unveraendert).count())
+        .sum();
+
+    if unveraendert > 0 {
+        println!();
+        println!("MCP-Server unverändert: {unveraendert} Eintrag/Einträge");
+    }
+
+    if !nicht_gewaehlt.is_empty() {
+        println!();
+        println!("MCP-Server nicht einzeln gewählt ({})", nicht_gewaehlt.len());
+        println!("  werden nicht eingetragen — MCP-Server nur über `select`, nie über „alles“");
+
+        for item in nicht_gewaehlt.iter().take(20) {
+            println!("  - {}", item.name);
+        }
+    }
+}
+
 fn report(plan: &[(ManifestItem, Verdict, PathBuf)]) {
     let zeige = |verdict: &Verdict, titel: &str, hinweis: &str| {
         let treffer: Vec<&(ManifestItem, Verdict, PathBuf)> =
@@ -742,6 +1192,19 @@ fn fetch_item_ueber(
     kind: &str,
     slug: &str,
 ) -> Result<ItemDetail, String> {
+    let wert = fetch_bundle_roh(connection, token, kind, slug)?;
+
+    serde_json::from_value(wert).map_err(|e| format!("{kind}/{slug} ist unlesbar: {e}"))
+}
+
+/// Das Bundle eines Eintrags, ungedeutet — MCP-Server lesen es anders als
+/// Dateibestände.
+fn fetch_bundle_roh(
+    connection: &Connection,
+    token: &str,
+    kind: &str,
+    slug: &str,
+) -> Result<serde_json::Value, String> {
     let wert = crate::mcp::call_tool(
         connection,
         token,
@@ -755,7 +1218,7 @@ fn fetch_item_ueber(
         return Err(format!("{kind}/{slug}: {fehler}"));
     }
 
-    serde_json::from_value(wert).map_err(|e| format!("{kind}/{slug} ist unlesbar: {e}"))
+    Ok(wert)
 }
 
 /// Holt das Manifest über MCP.

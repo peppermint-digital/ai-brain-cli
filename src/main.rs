@@ -38,6 +38,7 @@ mod frage;
 mod konto;
 mod maske;
 mod mcp;
+mod mcp_eintraege;
 mod nachricht;
 mod pairing;
 mod rechner;
@@ -57,7 +58,7 @@ Aufrufe:
                                   Programm kam)
   ai-brain-harness mcp                Als MCP-Server laufen (startet Claude Code selbst)
   ai-brain-harness select             Waehlen, welche Eintraege dieser Rechner bekommt
-  ai-brain-harness sync               Skills und Agents aus dem Repository abgleichen
+  ai-brain-harness sync               Skills, Agents und gewaehlte MCP-Server abgleichen
   ai-brain-harness erinnerungen [..]  Das Gedaechtnis mit AI Brain abgleichen
   ai-brain-harness publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-harness chat [...]         Ein Gespraech hier fuehren (kurz: `brain`)
@@ -96,6 +97,11 @@ Optionen für `sync`:
   einzeln (behalten / überschreiben / Unterschied ansehen). Ohne Terminal wird
   NIE gefragt — dann gilt, was an Optionen dasteht.
 
+  MCP-Server (Typ mcp) traegt `sync` nur ein, wenn sie auf diesem Rechner per
+  `select` einzeln gewaehlt sind — nie ueber „alles“. Eingetragen wird in jede
+  Claude-Konfiguration (~/.claude.json, $CLAUDE_CONFIG_DIR, imkr-Konten) und
+  ueber `codex mcp add` in Codex. Die Konfiguration wird vorher gesichert.
+
 Optionen für `agent`:
   --task <N>            Aufgabe aus AI Brain (die Beschreibung wird geholt)
   --projekt <slug>      Projekt, in dem gearbeitet wird
@@ -117,7 +123,8 @@ Optionen für `agent`:
 Optionen für `select`:
   --zeigen              Nur anzeigen, nichts fragen und nichts aendern
   --setzen a,b,c        Ohne Rueckfrage genau diese Eintraege setzen
-  --alles               Ohne Rueckfrage auf alles stellen (auch kuenftige Eintraege)
+  --alles               Ohne Rueckfrage auf alles stellen (auch kuenftige Eintraege;
+                        MCP-Server nie — die bleiben, wie sie einzeln gewaehlt sind)
   --geraet <Name>       Ein anderes eigenes Geraet einstellen (Standard: dieser Rechner)
 
   Ohne Terminal wird nie gefragt — dann zeigt `select` nur an.
