@@ -305,6 +305,13 @@ pub struct Auftrag {
     /// `None` heisst: keine Grenze. Vorgabe ist eine Stunde — ein
     /// unbeaufsichtigter Lauf, der haengt, haelt sonst ewig seinen Herzschlag.
     pub zeitgrenze: Option<Duration>,
+    /// Vorsatz fuer den Eintrag im Register, z. B. `[Taktgeber]`.
+    ///
+    /// **Wofuer.** Ein Lauf, den ein Taktgeber angeworfen hat, sieht im
+    /// Register sonst genauso aus wie einer, den ein Mensch gestartet hat.
+    /// Unbeaufsichtigte Laeufe muss man aber zaehlen koennen (Tagesgrenze) und
+    /// unterscheiden wollen, wenn einer schiefgeht.
+    pub marke: Option<String>,
 }
 
 /// Zerlegt die Kommandozeile.
@@ -321,6 +328,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
     let mut in_imkr = false;
     let mut sitzung = Sitzungswahl::Neu { kennung: None };
     let mut zeitgrenze = Some(ZEITGRENZE_VORGABE);
+    let mut marke: Option<String> = None;
     let mut freie = Vec::new();
 
     let mut i = 0;
@@ -335,6 +343,10 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
         match args[i].as_str() {
             "--modell" | "--model" => {
                 modell = Modell::aus(&wert(i, "--modell")?)?;
+                i += 2;
+            }
+            "--marke" => {
+                marke = Some(wert(i, "--marke")?);
                 i += 2;
             }
             "--dir" | "--verzeichnis" => {
@@ -423,6 +435,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
         in_imkr,
         sitzung,
         zeitgrenze,
+        marke,
     })
 }
 
@@ -770,7 +783,17 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         verzeichnis: auftrag.verzeichnis.display().to_string(),
         projekt: auftrag.projekt.clone(),
         task: auftrag.task,
-        auftrag: auftrag.text.clone(),
+        // Der Vorsatz macht im Register sichtbar, dass ein Taktgeber den
+        // Lauf angeworfen hat — daran zaehlt auch die Tagesgrenze.
+        auftrag: match (&auftrag.marke, &auftrag.text, auftrag.task) {
+            (Some(m), Some(t), _) => Some(format!("{m} {t}")),
+            // Ein Auftrag aus AI Brain hat keinen freien Text — die Anweisung
+            // steht in der Aufgabe. Ohne deren Nummer sagt der Eintrag nur
+            // „[Taktgeber]" und niemand weiss hinterher, worum es ging.
+            (Some(m), None, Some(nr)) => Some(format!("{m} Aufgabe #{nr}")),
+            (Some(m), None, None) => Some(m.clone()),
+            (None, t, _) => t.clone(),
+        },
         pid: None,
         pane: None,
     })?;
@@ -1108,6 +1131,33 @@ mod tests {
     }
 
     #[test]
+    fn die_marke_wird_aus_der_befehlszeile_gelesen() {
+        // Ein Lauf, den ein Taktgeber angeworfen hat, sieht im Register sonst
+        // genauso aus wie einer, den ein Mensch gestartet hat — und die
+        // Tagesgrenze zaehlt daran.
+        let a = auftrag_lesen(
+            &[
+                "--marke".to_string(),
+                "[Taktgeber]".to_string(),
+                "etwas tun".to_string(),
+            ],
+            PathBuf::from("/tmp"),
+        )
+        .unwrap();
+
+        assert_eq!(a.marke.as_deref(), Some("[Taktgeber]"));
+        // Und die Marke landet NICHT im Auftragstext.
+        assert_eq!(a.text.as_deref(), Some("etwas tun"));
+    }
+
+    #[test]
+    fn ohne_marke_bleibt_sie_leer() {
+        let a = auftrag_lesen(&["etwas tun".to_string()], PathBuf::from("/tmp")).unwrap();
+
+        assert!(a.marke.is_none());
+    }
+
+    #[test]
     fn vorlauf_nennt_die_aufgabe_und_bettet_keinen_kontext_ein() {
         let auftrag = Auftrag {
             modell: Modell::Claude,
@@ -1120,6 +1170,7 @@ mod tests {
             in_imkr: false,
             sitzung: Sitzungswahl::Neu { kennung: None },
             zeitgrenze: Some(ZEITGRENZE_VORGABE),
+            marke: None,
         };
 
         let text = vorlauf(&auftrag, Some("# Task #7666\nLauf-Register anbinden"));

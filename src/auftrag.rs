@@ -86,8 +86,67 @@ fn holen(connection: &Connection, annehmen: bool) -> Result<Vec<Auftrag>, String
     Ok(antwort.auftraege)
 }
 
+/// Wie viele unbeaufsichtigte Auftragslaeufe heute schon liefen.
+///
+/// **Gezaehlt aus dem Laufregister, nicht aus einem eigenen Zaehler.** Ein
+/// zweiter Zaehler waere eine zweite Wahrheit — und die driftet, sobald ein
+/// Lauf abbricht, bevor er zaehlen konnte.
+fn laeufe_heute() -> usize {
+    let Ok(laeufe) = crate::register::liste() else {
+        return 0;
+    };
+
+    // Mitternacht als Unix-Sekunde, ohne Zeitzonen-Bibliothek: der Tag hat
+    // 86400 Sekunden, und wir brauchen keine Kalenderlogik, sondern eine
+    // Grenze, die sich taeglich zurueckstellt.
+    let tagesbeginn = (crate::register::jetzt() / 86_400) * 86_400;
+
+    laeufe
+        .iter()
+        .filter(|l| l.gestartet >= tagesbeginn)
+        .filter(|l| {
+            l.auftrag
+                .as_deref()
+                .map(|a| a.starts_with(MARKE))
+                .unwrap_or(false)
+        })
+        .count()
+}
+
+/// Die Marke, an der unbeaufsichtigte Laeufe erkennbar sind.
+const MARKE: &str = "[Taktgeber] ";
+
+// Der abschliessende Abstand ist nicht Kosmetik: `laeufe_heute` prueft mit
+// `starts_with(MARKE)`, und der Register-Eintrag entsteht als
+// "{marke} {text}". Ohne den Abstand zaehlte "[Taktgeber]etwas" mit,
+// "[Taktgeber] etwas" aber nicht — die Tagesgrenze waere wirkungslos.
+//
+// Als Zusicherung beim BAUEN, nicht als Test: ein Test auf eine Konstante
+// prueft zur Laufzeit nichts, der Compiler kennt die Antwort schon. So
+// scheitert der Bau, nicht erst der Lauf.
+const _: () = assert!(MARKE.as_bytes()[MARKE.len() - 1] == b' ');
+
+/// Wie viele Modelllaeufe der Taktgeber am Tag hoechstens anwirft.
+///
+/// **Warum es eine Grenze braucht.** Ein Dispatch traegt eine Anweisung fuer
+/// ein Modell — anders als ein Dauerauftrag, der meist ein Befehl ist.
+/// Unbeaufsichtigt Modelle anzuwerfen ist eine Kostenquelle ohne Aufsicht:
+/// Legt jemand (oder ein Fehler in einer Automatik) hundert Auftraege an,
+/// laufen sie sonst alle. Zwanzig ist reichlich fuer einen Arbeitstag und
+/// klein genug, dass ein Irrlaeufer auffaellt, bevor er teuer wird.
+const GRENZE_PRO_TAG: usize = 20;
+
+// Null hielte den Taktgeber dauerhaft an, ohne dass es nach einem Fehler
+// aussieht; zu grosszuegig hiesse, dass ein Irrlaeufer teuer wird, bevor er
+// auffaellt.
+const _: () = assert!(GRENZE_PRO_TAG > 0 && GRENZE_PRO_TAG <= 50);
+
 /// `auftraege` — was liegt an?
 pub fn anzeigen(args: &[String]) -> Result<(), String> {
+    if args.iter().any(|a| a == "--fahren") {
+        return fahren(args);
+    }
+
     let connection = config::load()?;
     let auftraege = holen(&connection, false)?;
 
@@ -264,6 +323,102 @@ pub fn nachmelden(args: &[String]) -> Result<(), String> {
 
     melden(&connection, nummer, status, &text)?;
     println!("Auftrag #{nummer} als {status} gemeldet.");
+
+    Ok(())
+}
+
+/// `auftraege --fahren` — unbeaufsichtigt abholen und abarbeiten.
+///
+/// **Die Lücke, die das schliesst.** Dauerauftraege holt ein Taktgeber alle
+/// fuenf Minuten ab; ein Dispatch aus der AI-Brain-Oberflaeche wartete
+/// dagegen UNBEGRENZT — bis jemand `auftraege` tippt. Wer in der Oberflaeche
+/// eine Aufgabe an einen Rechner schickt, hat damit ein Versprechen ohne
+/// Frist.
+///
+/// **Warum keine Parallelitaet.** Die Auftraege werden der Reihe nach
+/// gefahren, nicht gleichzeitig. Zwei Modelllaeufe auf demselben Rechner
+/// streiten sich um Kontingent und Aufmerksamkeit, und der zweite Fehlschlag
+/// verdeckt den ersten.
+pub fn fahren(args: &[String]) -> Result<(), String> {
+    let still = args.iter().any(|a| a == "--still");
+    let connection = config::load()?;
+    let offen = holen(&connection, false)?;
+
+    if offen.is_empty() {
+        if !still {
+            println!("Keine Auftraege fuer diesen Rechner.");
+        }
+
+        return Ok(());
+    }
+
+    let bereits = laeufe_heute();
+
+    if bereits >= GRENZE_PRO_TAG {
+        // Nicht still verschlucken: eine erreichte Grenze ist ein Befund.
+        // Wer sie nicht sieht, haelt die Auftraege fuer vergessen.
+        return Err(format!(
+            "Tagesgrenze erreicht: {bereits} von {GRENZE_PRO_TAG} unbeaufsichtigten Laeufen.\n             {} Auftrag/Auftraege bleiben liegen. Von Hand fahren:  ai-brain-harness auftrag <nummer>",
+            offen.len()
+        ));
+    }
+
+    let frei = GRENZE_PRO_TAG - bereits;
+    let zu_fahren: Vec<&Auftrag> = offen.iter().take(frei).collect();
+
+    if !still {
+        println!(
+            "{} Auftrag/Auftraege, {} heute schon gelaufen (Grenze {GRENZE_PRO_TAG}).",
+            offen.len(),
+            bereits
+        );
+        println!();
+    }
+
+    let mut gefahren = 0usize;
+    let mut gescheitert = 0usize;
+
+    for auftrag in &zu_fahren {
+        if !still {
+            println!("  #{} {}", auftrag.id, auftrag.titel.as_deref().unwrap_or("(ohne Titel)"));
+        }
+
+        // Ueber denselben Weg wie von Hand: `annehmen` greift atomar, startet
+        // den Lauf und meldet zurueck. Eine zweite Umsetzung desselben
+        // Ablaufs waere eine zweite Stelle, an der das Melden vergessen
+        // werden kann.
+        let mut eigene: Vec<String> = vec![auftrag.id.to_string()];
+
+        // Die Marke macht den Lauf im Register als unbeaufsichtigt erkennbar —
+        // daran zaehlt die Tagesgrenze.
+        eigene.push("--marke".to_string());
+        eigene.push(MARKE.trim().to_string());
+
+        eigene.extend(
+            args.iter()
+                .filter(|a| *a != "--fahren" && *a != "--still")
+                .cloned(),
+        );
+
+        match annehmen(&eigene) {
+            Ok(()) => gefahren += 1,
+            Err(e) => {
+                gescheitert += 1;
+                eprintln!("  #{}: {e}", auftrag.id);
+            }
+        }
+    }
+
+    let liegen = offen.len().saturating_sub(zu_fahren.len());
+
+    if !still || gescheitert > 0 || liegen > 0 {
+        println!();
+        println!("{gefahren} gefahren, {gescheitert} gescheitert, {liegen} liegen (Tagesgrenze).");
+    }
+
+    if gescheitert > 0 {
+        return Err(format!("{gescheitert} Auftrag/Auftraege sind gescheitert."));
+    }
 
     Ok(())
 }

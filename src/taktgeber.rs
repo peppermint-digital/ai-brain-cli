@@ -26,6 +26,15 @@ use std::process::Command;
 const DIENST: &str = "ai-brain-daueraufgaben.service";
 const TIMER: &str = "ai-brain-daueraufgaben.timer";
 
+/// Der zweite Taktgeber: Auftraege aus der AI-Brain-Oberflaeche.
+///
+/// **Warum zwei.** Dauerauftraege sind wiederkehrend und laufen meist ohne
+/// Modell; Dispatches sind einmalig und tragen eine Anweisung FUER ein Modell.
+/// Verschiedene Takte, verschiedene Kosten, verschiedene Grenzen — in einer
+/// Unit zusammengelegt waere die eine nicht ohne die andere abschaltbar.
+const AUFTRAG_DIENST: &str = "ai-brain-auftraege.service";
+const AUFTRAG_TIMER: &str = "ai-brain-auftraege.timer";
+
 fn unit_verzeichnis() -> Result<PathBuf, String> {
     let heimat = std::env::var("HOME").map_err(|_| "HOME ist nicht gesetzt.".to_string())?;
 
@@ -52,6 +61,34 @@ pub fn units(programm: &str, takt: &str) -> (String, String) {
     let timer = format!(
         "[Unit]\n\
          Description=AI Brain Harness — Taktgeber fuer Dauerauftraege\n\
+         \n\
+         [Timer]\n\
+         OnCalendar={takt}\n\
+         Persistent=true\n\
+         RandomizedDelaySec=30\n\
+         \n\
+         [Install]\n\
+         WantedBy=timers.target\n"
+    );
+
+    (dienst, timer)
+}
+
+/// Die Units fuer den Auftrags-Abholer.
+pub fn auftrag_units(programm: &str, takt: &str) -> (String, String) {
+    let dienst = format!(
+        "[Unit]\n\
+         Description=AI Brain Harness — Auftraege aus AI Brain abholen und fahren\n\
+         After=network-online.target\n\
+         \n\
+         [Service]\n\
+         Type=oneshot\n\
+         ExecStart={programm} auftraege --fahren --still\n"
+    );
+
+    let timer = format!(
+        "[Unit]\n\
+         Description=AI Brain Harness — Taktgeber fuer Auftraege\n\
          \n\
          [Timer]\n\
          OnCalendar={takt}\n\
@@ -108,14 +145,25 @@ fn einrichten(takt: &str) -> Result<(), String> {
     std::fs::write(verzeichnis.join(TIMER), &timer)
         .map_err(|e| format!("{TIMER} nicht schreibbar: {e}"))?;
 
+    let (a_dienst, a_timer) = auftrag_units(&programm, takt);
+
+    std::fs::write(verzeichnis.join(AUFTRAG_DIENST), &a_dienst)
+        .map_err(|e| format!("{AUFTRAG_DIENST} nicht schreibbar: {e}"))?;
+    std::fs::write(verzeichnis.join(AUFTRAG_TIMER), &a_timer)
+        .map_err(|e| format!("{AUFTRAG_TIMER} nicht schreibbar: {e}"))?;
+
     systemctl(&["daemon-reload"])?;
     systemctl(&["enable", "--now", TIMER])?;
+    systemctl(&["enable", "--now", AUFTRAG_TIMER])?;
 
     println!("Taktgeber eingerichtet.");
     println!();
-    println!("  Dienst   {}", verzeichnis.join(DIENST).display());
-    println!("  Takt     {takt}");
-    println!("  Befehl   {programm} daueraufgaben --fahren --still");
+    println!("  Dauerauftraege  {}", verzeichnis.join(DIENST).display());
+    println!("  Auftraege       {}", verzeichnis.join(AUFTRAG_DIENST).display());
+    println!("  Takt            {takt}");
+    println!();
+    println!("  Bis jetzt wartete ein Auftrag aus der Oberflaeche UNBEGRENZT —");
+    println!("  bis jemand `auftraege` tippte. Jetzt hoechstens einen Takt.");
     println!();
 
     // Ohne Lingering läuft der Timer nur, solange jemand angemeldet ist — und
@@ -143,8 +191,9 @@ fn entfernen() -> Result<(), String> {
     // Erst abschalten, dann löschen. Andersherum bleibt eine Unit aktiviert,
     // deren Datei fehlt, und systemd meckert bei jedem `daemon-reload`.
     let _ = systemctl(&["disable", "--now", TIMER]);
+    let _ = systemctl(&["disable", "--now", AUFTRAG_TIMER]);
 
-    for datei in [DIENST, TIMER] {
+    for datei in [DIENST, TIMER, AUFTRAG_DIENST, AUFTRAG_TIMER] {
         let pfad = verzeichnis.join(datei);
 
         if pfad.exists() {
@@ -270,6 +319,37 @@ fn ausgabe(args: &[&str]) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn der_auftrags_dienst_ruft_den_richtigen_befehl() {
+        let (dienst, _) = auftrag_units("/usr/bin/ai-brain-harness", "*-*-* *:00/5:00");
+
+        assert!(dienst.contains("auftraege --fahren --still"), "{dienst}");
+        assert!(dienst.contains("Type=oneshot"));
+        // Scharf: NICHT der Dauerauftrags-Befehl.
+        assert!(!dienst.contains("daueraufgaben"), "{dienst}");
+    }
+
+    #[test]
+    fn beide_taktgeber_sind_getrennte_einheiten() {
+        // In einer Unit zusammengelegt waere die eine nicht ohne die andere
+        // abschaltbar — und sie haben verschiedene Kosten.
+        assert_ne!(DIENST, AUFTRAG_DIENST);
+        assert_ne!(TIMER, AUFTRAG_TIMER);
+
+        let (d1, _) = units("/x", "*-*-* *:00/5:00");
+        let (d2, _) = auftrag_units("/x", "*-*-* *:00/5:00");
+
+        assert_ne!(d1, d2);
+    }
+
+    #[test]
+    fn der_auftrags_timer_holt_versaeumte_laeufe_nach() {
+        let (_, timer) = auftrag_units("/x", "*-*-* *:00/5:00");
+
+        assert!(timer.contains("Persistent=true"));
+        assert!(timer.contains("WantedBy=timers.target"));
+    }
 
     #[test]
     fn der_dienst_ruft_den_abholer_still() {
