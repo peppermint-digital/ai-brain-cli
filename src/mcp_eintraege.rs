@@ -672,7 +672,10 @@ mod tests {
         let mac = wiese.join("Google Chrome");
         fs::write(&mac, "").unwrap();
         assert_eq!(
-            browser_finden_in(Some(bin.clone().into_os_string()), &[mac.clone()]),
+            browser_finden_in(
+                Some(bin.clone().into_os_string()),
+                std::slice::from_ref(&mac)
+            ),
             Some(mac.clone())
         );
 
