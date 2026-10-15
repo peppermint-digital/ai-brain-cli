@@ -24,6 +24,7 @@
 //! tot. Genau deshalb ist die CLI nicht nur ein Einrichtungsprogramm.
 
 mod agent;
+mod anbieter;
 mod anzeige;
 mod aufgaben;
 mod auftrag;
@@ -42,6 +43,7 @@ mod mcp_eintraege;
 mod nachricht;
 mod pairing;
 mod rechner;
+mod schleife;
 mod register;
 mod taktgeber;
 mod select;
@@ -206,6 +208,7 @@ fn main() -> ExitCode {
         Some("aufgaben") => aufgaben::anzeigen(&args[1..]),
         Some("daueraufgaben") => dauerauftrag::anzeigen(&args[1..]),
         Some("taktgeber") => taktgeber::verwalten(&args[1..]),
+        Some("schleife") => schleife::verwalten(&args[1..]),
         Some("erinnerungen") => erinnerungen::abgleichen(&args[1..]),
         Some("auftraege") => auftrag::anzeigen(&args[1..]),
         Some("auftrag") => auftrag::annehmen(&args[1..]),

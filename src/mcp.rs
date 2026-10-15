@@ -434,6 +434,45 @@ fn respond_with_error(
     Ok(())
 }
 
+/// Fragt die Instanz, welche Werkzeuge sie anbietet.
+///
+/// **Wofuer.** Der eigene Loop muss dem Modell die Werkzeuge beschreiben, und
+/// die Beschreibungen gehoeren der Instanz — nicht einer Liste hier im Harness.
+/// Eine solche Liste waere ab dem naechsten neuen Werkzeug in AI Brain falsch,
+/// und zwar stillschweigend: das Modell wuesste nichts davon.
+pub fn tools_list(
+    connection: &Connection,
+    token: &str,
+) -> Result<Vec<serde_json::Value>, String> {
+    let payload = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "tools/list",
+    })
+    .to_string();
+
+    let body = forward(connection, token, &payload)?
+        .ok_or_else(|| "Die Instanz hat auf tools/list nichts geantwortet.".to_string())?;
+
+    let antwort: serde_json::Value = serde_json::from_str(&nutzlast(&body))
+        .map_err(|e| format!("Antwort auf tools/list ist unlesbar: {e}"))?;
+
+    if let Some(fehler) = antwort.get("error") {
+        let grund = fehler
+            .get("message")
+            .and_then(|m| m.as_str())
+            .unwrap_or("kein Grund genannt");
+
+        return Err(format!("Die Instanz lehnt tools/list ab: {grund}"));
+    }
+
+    Ok(antwort
+        .pointer("/result/tools")
+        .and_then(|t| t.as_array())
+        .cloned()
+        .unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{ablauf, TOKEN_ABSTAND};

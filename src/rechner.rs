@@ -242,7 +242,7 @@ pub fn serve() -> Result<(), String> {
 /// **Bewusst weglassen statt im Aufruf ablehnen.** Ein Werkzeug, das in der
 /// Liste steht und dann „darfst du nicht" sagt, laedt zum Probieren ein und
 /// kostet jedes Mal einen Zug. Was nicht erlaubt ist, existiert nicht.
-fn liste(hoheit: Hoheit) -> Vec<serde_json::Value> {
+pub fn liste(hoheit: Hoheit) -> Vec<serde_json::Value> {
     WERKZEUGE
         .iter()
         .filter(|w| !w.aendernd || hoheit == Hoheit::Steuernd)
