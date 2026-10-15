@@ -296,9 +296,27 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     // Ein- und Ausgabe werden GEERBT. Das ist der ganze Unterschied zu einem
     // Lauf: Dort ist die Eingabe zu und die Ausgabe geht in eine Datei, hier
     // ist das Terminal die Oberflaeche.
-    let status = befehl
-        .status()
+    let mut kind = befehl
+        .spawn()
         .map_err(|e| format!("{} liess sich nicht starten: {e}", modell.programm()))?;
+
+    register::pid_setzen(&lauf.id, kind.id())?;
+
+    // **Warum hier gewartet wird statt `status()`.** Ein Lauf ohne imkr-Pane
+    // hat keinen anderen Aufseher als diesen Prozess. Ohne Lebenszeichen
+    // erklaert ihn das Register nach drei Minuten fuer verschwunden — ein
+    // Gespraech, an dem jemand gerade tippt, staende in `agents` als Fehler.
+    // Gefunden, als imkr `brain` in ein eigenes Fenster haengte.
+    let status = loop {
+        match kind.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => {
+                let _ = register::herzschlag(&lauf.id);
+                std::thread::sleep(std::time::Duration::from_secs(30));
+            }
+            Err(e) => return Err(format!("Der Lauf laesst sich nicht beobachten: {e}")),
+        }
+    };
 
     register::abschliessen(&lauf.id, status.code(), None)?;
 

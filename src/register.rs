@@ -147,7 +147,7 @@ impl Lauf {
 /// nicht dauerhaft echte Funde verdeckt.
 ///
 /// Angaben, die beim Anlegen bekannt sind. Alles andere setzt das Register.
-#[allow(dead_code)]
+
 #[derive(Debug, Clone, Default)]
 pub struct NeuerLauf {
     pub modell: String,
@@ -283,9 +283,20 @@ pub fn lesen(id: &str) -> Result<Lauf, String> {
     serde_json::from_str(&roh).map_err(|e| format!("{} ist beschädigt: {e}", pfad.display()))
 }
 
+/// Die Kennung des Kindprozesses nachtragen.
+///
+/// Beim Anlegen gibt es sie noch nicht: Der Lauf wird eingetragen, BEVOR etwas
+/// startet — sonst bliebe ein Absturz dazwischen unsichtbar.
+pub fn pid_setzen(id: &str, pid: u32) -> Result<(), String> {
+    let mut lauf = lesen(id)?;
+    lauf.pid = Some(pid);
+    lauf.zuletzt_gesehen = jetzt();
+
+    schreiben(&lauf)
+}
+
 /// Lebenszeichen des Aufsehers. Ohne das gilt ein Lauf nach
-/// `HERZSCHLAG_TOLERANZ` als verschwunden. Aufrufer: `agent` (#7666).
-#[allow(dead_code)]
+/// `HERZSCHLAG_TOLERANZ` als verschwunden. Aufrufer: `agent` und `chat`.
 pub fn herzschlag(id: &str) -> Result<(), String> {
     let mut lauf = lesen(id)?;
     lauf.zuletzt_gesehen = jetzt();

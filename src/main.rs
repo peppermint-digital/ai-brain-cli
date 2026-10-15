@@ -24,6 +24,7 @@ mod auftrag;
 mod chat;
 mod config;
 mod discovery;
+mod erinnerungen;
 mod freigabe;
 mod imkr;
 mod frage;
@@ -46,6 +47,7 @@ Aufrufe:
   ai-brain-cli mcp                Als MCP-Server laufen (startet Claude Code selbst)
   ai-brain-cli select             Waehlen, welche Eintraege dieser Rechner bekommt
   ai-brain-cli sync               Skills und Agents aus dem Repository abgleichen
+  ai-brain-cli erinnerungen [..]  Das Gedaechtnis mit AI Brain abgleichen
   ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
   ai-brain-cli chat [...]         Ein Gespraech hier fuehren (kurz: `brain`)
   ai-brain-cli agent [...]        Einen Agentenlauf hier starten
@@ -168,6 +170,7 @@ fn main() -> ExitCode {
         Some("chat") => chat::starten(&args[1..]),
         Some("agents") => register::anzeigen(&args[1..]),
         Some("aufgaben") => aufgaben::anzeigen(&args[1..]),
+        Some("erinnerungen") => erinnerungen::abgleichen(&args[1..]),
         Some("auftraege") => auftrag::anzeigen(&args[1..]),
         Some("auftrag") => auftrag::annehmen(&args[1..]),
         Some("auftrag-melden") => auftrag::nachmelden(&args[1..]),
