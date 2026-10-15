@@ -49,7 +49,16 @@ pub fn config_path() -> Result<PathBuf, String> {
     Ok(config_dir()?.join("connection.json"))
 }
 
-/// Der Ordner, unter dem bis zur Umbenennung alles lag (#7664).
+/// Der Ordner, unter dem bis zur ersten Umbenennung alles lag (#7664).
+///
+/// **Der Name der Ablage bleibt `ai-brain-harness`, auch nachdem das Programm
+/// `ai-brain-harness` heisst.** Das ist Absicht: Die Ablage ist unsichtbar, und
+/// ein zweiter Datenumzug auf drei Rechnern waere Risiko ohne Gegenwert.
+/// `install.sh` schreibt `instanz` hinein, BEVOR das Programm das erste Mal
+/// laeuft — eine Umbenennung muesste also auf beiden Seiten gleichzeitig
+/// stimmen, sonst sucht das Programm an einer Stelle, die der Installer nie
+/// befuellt hat. Wer es doch aufraeumen will, erweitert diese Funktion um eine
+/// LISTE alter Namen statt den einen zu ersetzen.
 fn alter_config_dir() -> Result<PathBuf, String> {
     let neu = config_dir()?;
     let name = neu
@@ -92,14 +101,14 @@ pub fn uebernimm_alte_ablage() {
 
     if let Err(e) = fs::create_dir_all(&neu) {
         eprintln!(
-            "ai-brain-cli: {} lässt sich nicht anlegen ({e}).",
+            "ai-brain-harness: {} lässt sich nicht anlegen ({e}).",
             neu.display()
         );
         return;
     }
 
     let Ok(eintraege) = fs::read_dir(&alt) else {
-        eprintln!("ai-brain-cli: {} lässt sich nicht lesen.", alt.display());
+        eprintln!("ai-brain-harness: {} lässt sich nicht lesen.", alt.display());
         return;
     };
 
@@ -119,7 +128,7 @@ pub fn uebernimm_alte_ablage() {
             Err(e) => {
                 stehengeblieben += 1;
                 eprintln!(
-                    "ai-brain-cli: {} liess sich nicht übernehmen ({e}).",
+                    "ai-brain-harness: {} liess sich nicht übernehmen ({e}).",
                     eintrag.path().display()
                 );
             }
@@ -135,7 +144,7 @@ pub fn uebernimm_alte_ablage() {
     }
 
     eprintln!(
-        "ai-brain-cli: Ablage übernommen — {} Eintrag/Einträge aus {} nach {}{}",
+        "ai-brain-harness: Ablage übernommen — {} Eintrag/Einträge aus {} nach {}{}",
         geholt,
         alt.display(),
         neu.display(),
@@ -177,7 +186,7 @@ pub fn load() -> Result<Connection, String> {
 
     let raw = fs::read_to_string(&path).map_err(|_| {
         "Dieser Rechner ist noch nicht verbunden.\n\
-         Führe zuerst aus:  ai-brain-cli connect <domain>"
+         Führe zuerst aus:  ai-brain-harness connect <domain>"
             .to_string()
     })?;
 
@@ -225,7 +234,72 @@ pub fn claude_config_path() -> Result<PathBuf, String> {
 /// weit mehr als unseren Eintrag, und ein kaputtes JSON dort kostet den Nutzer
 /// seine gesamte Konfiguration. Wir lesen, ergänzen genau einen Schlüssel und
 /// schreiben zurück — alles andere bleibt unangetastet.
-pub fn write_claude_config() -> Result<PathBuf, String> {
+/// Namen, unter denen dieses Programm schon gelaufen ist.
+///
+/// Gebraucht, um alte MCP-Eintraege zu erkennen. Auf Laptop und Desktop zeigte
+/// der Eintrag am 15.10.2026 noch auf `ai-brain-companion` vom August — das
+/// Programm lag dort nicht mehr, und AI Brain war in Claude Code deshalb
+/// stillschweigend getrennt. Der Eintrag SAH richtig aus; nur der Pfad hinter
+/// ihm war tot.
+const EIGENE_NAMEN: &[&str] = &["ai-brain-harness", "ai-brain-cli", "ai-brain-companion"];
+
+/// Zeigt dieser Befehl auf eine unserer Fassungen?
+///
+/// **Beide Trennzeichen selbst behandeln, nicht `Path` fragen.** `Path` richtet
+/// sich nach dem System, auf dem es laeuft: Unter Linux ist `C:\Programs\x.exe`
+/// EIN Dateiname mit Backslashes darin, und die Pruefung schlaegt fehl. Dieselbe
+/// Konfiguration kann aber von einem Windows-Rechner stammen — und soll dort
+/// wie hier gleich bewertet werden.
+fn ist_unser_programm(befehl: &str) -> bool {
+    let letzter = befehl
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(befehl);
+
+    // Endung abschneiden, aber nur eine bekannte: ein Punkt im Namen selbst
+    // darf nicht zum Kuerzen fuehren.
+    let name = letzter.strip_suffix(".exe").unwrap_or(letzter);
+
+    EIGENE_NAMEN.contains(&name)
+}
+
+/// Raeumt MCP-Eintraege weg, die unter einem ANDEREN Schluessel auf eine
+/// unserer Fassungen zeigen.
+///
+/// **Warum das noetig ist.** Der Eintrag unter `ai-brain` wird beim Schreiben
+/// ohnehin ersetzt. Ein Eintrag unter `ai-brain-companion` oder `ai-brain-cli`
+/// bleibt dagegen stehen — und dann haengen zwei Server am Werkzeug, die beide
+/// dieselbe Instanz anbieten. Doppelte Werkzeugnamen sind keine Kleinigkeit:
+/// das Modell sieht jedes Werkzeug zweimal und muss raten, welches gilt.
+///
+/// Was NICHT angefasst wird: fremde Server. Ein Eintrag, dessen Befehl nicht
+/// auf eines unserer Programme zeigt, gehoert jemand anderem.
+fn alte_eintraege_raeumen(server: &mut serde_json::Map<String, serde_json::Value>) -> Vec<String> {
+    let zu_loeschen: Vec<String> = server
+        .iter()
+        .filter(|(schluessel, _)| schluessel.as_str() != "ai-brain")
+        .filter(|(_, wert)| {
+            wert.get("command")
+                .and_then(|c| c.as_str())
+                .map(ist_unser_programm)
+                .unwrap_or(false)
+        })
+        .map(|(schluessel, _)| schluessel.clone())
+        .collect();
+
+    for schluessel in &zu_loeschen {
+        server.remove(schluessel);
+    }
+
+    zu_loeschen
+}
+
+/// Schreibt den MCP-Eintrag und raeumt alte Fassungen weg.
+///
+/// Gibt den Pfad und die Schluessel zurueck, die dabei verschwunden sind —
+/// stillschweigend etwas aus einer fremden Konfiguration zu loeschen waere
+/// genau die Sorte Hilfsbereitschaft, die man spaeter nicht nachvollziehen kann.
+pub fn write_claude_config_mit_bericht() -> Result<(PathBuf, Vec<String>), String> {
     let path = claude_config_path()?;
 
     let mut root: serde_json::Value = if path.exists() {
@@ -245,20 +319,24 @@ pub fn write_claude_config() -> Result<PathBuf, String> {
     let executable = std::env::current_exe()
         .map_err(|e| format!("Eigener Programmpfad nicht ermittelbar: {e}"))?;
 
-    root.as_object_mut()
+    let server = root
+        .as_object_mut()
         .ok_or_else(|| format!("{} ist kein JSON-Objekt.", path.display()))?
         .entry("mcpServers")
         .or_insert_with(|| serde_json::json!({}))
         .as_object_mut()
-        .ok_or_else(|| "mcpServers ist kein JSON-Objekt.".to_string())?
-        .insert(
-            "ai-brain".to_string(),
-            serde_json::json!({
-                "type": "stdio",
-                "command": executable.to_string_lossy(),
-                "args": ["mcp"],
-            }),
-        );
+        .ok_or_else(|| "mcpServers ist kein JSON-Objekt.".to_string())?;
+
+    let geraeumt = alte_eintraege_raeumen(server);
+
+    server.insert(
+        "ai-brain".to_string(),
+        serde_json::json!({
+            "type": "stdio",
+            "command": executable.to_string_lossy(),
+            "args": ["mcp"],
+        }),
+    );
 
     let json = serde_json::to_string_pretty(&root)
         .map_err(|e| format!("Konfiguration lässt sich nicht schreiben: {e}"))?;
@@ -266,7 +344,12 @@ pub fn write_claude_config() -> Result<PathBuf, String> {
     fs::write(&path, json)
         .map_err(|e| format!("{} lässt sich nicht schreiben: {e}", path.display()))?;
 
-    Ok(path)
+    Ok((path, geraeumt))
+}
+
+/// Wie {@link write_claude_config_mit_bericht}, ohne den Bericht.
+pub fn write_claude_config() -> Result<PathBuf, String> {
+    write_claude_config_mit_bericht().map(|(pfad, _)| pfad)
 }
 
 // ----------------------------------------------------------------- codex ----
@@ -449,5 +532,83 @@ mod tests {
                 None => std::env::remove_var(k),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod umbenennung_tests {
+    use super::*;
+
+    fn server(json: serde_json::Value) -> serde_json::Map<String, serde_json::Value> {
+        json.as_object().unwrap().clone()
+    }
+
+    #[test]
+    fn erkennt_alle_eigenen_namen_auch_mit_pfad_und_endung() {
+        assert!(ist_unser_programm("/home/x/.local/bin/ai-brain-harness"));
+        assert!(ist_unser_programm("/usr/local/bin/ai-brain-cli"));
+        assert!(ist_unser_programm("~/.local/bin/ai-brain-companion"));
+        // Windows: mit Endung.
+        assert!(ist_unser_programm("C:\\Programs\\ai-brain-cli.exe"));
+        // Ohne Pfad.
+        assert!(ist_unser_programm("ai-brain-harness"));
+    }
+
+    #[test]
+    fn haelt_fremde_programme_fuer_fremd() {
+        assert!(!ist_unser_programm("/usr/bin/npx"));
+        assert!(!ist_unser_programm("/home/x/.hermes/hermes-agent"));
+        // Scharf: ein Name, der unseren ENTHAELT, ist noch nicht unserer.
+        assert!(!ist_unser_programm("/usr/bin/ai-brain-cli-wrapper"));
+    }
+
+    #[test]
+    fn raeumt_eintraege_frueherer_fassungen_weg() {
+        let mut s = server(serde_json::json!({
+            "ai-brain-companion": { "command": "/home/x/.local/bin/ai-brain-companion", "args": ["mcp"] },
+            "ai-brain-cli": { "command": "/usr/local/bin/ai-brain-cli", "args": ["mcp"] },
+        }));
+
+        let weg = alte_eintraege_raeumen(&mut s);
+
+        assert_eq!(weg.len(), 2);
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn laesst_den_eigenen_schluessel_stehen() {
+        // Der wird beim Schreiben ohnehin ersetzt — ihn hier zu loeschen waere
+        // doppelt und wuerde faelschlich als „aufgeraeumt" gemeldet.
+        let mut s = server(serde_json::json!({
+            "ai-brain": { "command": "/alt/ai-brain-cli", "args": ["mcp"] },
+        }));
+
+        assert!(alte_eintraege_raeumen(&mut s).is_empty());
+        assert_eq!(s.len(), 1);
+    }
+
+    #[test]
+    fn laesst_fremde_server_unangetastet() {
+        let mut s = server(serde_json::json!({
+            "hermes": { "command": "/home/x/.hermes/hermes-agent", "args": ["mcp"] },
+            "playwright": { "command": "npx", "args": ["-y", "@playwright/mcp"] },
+        }));
+
+        assert!(alte_eintraege_raeumen(&mut s).is_empty());
+        assert_eq!(s.len(), 2, "fremde Server gehoeren jemand anderem");
+    }
+
+    #[test]
+    fn uebersteht_einen_eintrag_ohne_befehl() {
+        // Eine Konfiguration von Hand kann alles enthalten. Ein Eintrag ohne
+        // `command` darf nicht zum Absturz fuehren — und auch nicht geloescht
+        // werden, denn wir wissen nicht, wem er gehoert.
+        let mut s = server(serde_json::json!({
+            "kaputt": { "args": ["mcp"] },
+            "auch-kaputt": "gar kein Objekt",
+        }));
+
+        assert!(alte_eintraege_raeumen(&mut s).is_empty());
+        assert_eq!(s.len(), 2);
     }
 }

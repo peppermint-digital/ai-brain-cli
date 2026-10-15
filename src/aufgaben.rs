@@ -104,7 +104,7 @@ pub fn anzeigen(args: &[String]) -> Result<(), String> {
     }
 
     println!();
-    println!("Anfangen:  ai-brain-cli agent --task <nummer> --imkr");
+    println!("Anfangen:  ai-brain-harness agent --task <nummer> --imkr");
 
     Ok(())
 }

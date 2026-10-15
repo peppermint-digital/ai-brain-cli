@@ -400,7 +400,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
     if !apply {
         println!();
-        println!("Nichts geschrieben. Zum Anwenden:  ai-brain-cli sync --apply");
+        println!("Nichts geschrieben. Zum Anwenden:  ai-brain-harness sync --apply");
         return Ok(());
     }
 
@@ -536,7 +536,7 @@ fn entscheiden(
 ) -> Result<bool, String> {
     let lage = match verdict {
         Verdict::Konflikt => "hier UND auf der Instanz geaendert",
-        _ => "liegt hier, stammt aber nicht vom ai-brain-cli",
+        _ => "liegt hier, stammt aber nicht vom ai-brain-harness",
     };
 
     println!();
@@ -964,7 +964,7 @@ pub fn publish(args: &[String]) -> Result<(), String> {
     }
 
     let name = name.ok_or_else(|| {
-        "Welcher Eintrag? Beispiel:\n  ai-brain-cli publish mein-skill".to_string()
+        "Welcher Eintrag? Beispiel:\n  ai-brain-harness publish mein-skill".to_string()
     })?;
 
     let connection = config::load()?;

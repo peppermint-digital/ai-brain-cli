@@ -203,7 +203,7 @@ pub fn anzeigen(args: &[String]) -> Result<(), String> {
         println!("Nächster Lauf:  {}", crate::auftrag::seit(Some(naechster)));
     }
 
-    println!("Jetzt Fälliges abarbeiten:  ai-brain-cli daueraufgaben --fahren");
+    println!("Jetzt Fälliges abarbeiten:  ai-brain-harness daueraufgaben --fahren");
 
     Ok(())
 }

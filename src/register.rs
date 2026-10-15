@@ -526,7 +526,7 @@ pub fn anzeigen(args: &[String]) -> Result<(), String> {
     if laeufe.is_empty() {
         println!("Keine Läufe auf diesem Rechner.");
         println!();
-        println!("Einen starten:  ai-brain-cli agent --projekt <slug> \"<Auftrag>\"");
+        println!("Einen starten:  ai-brain-harness agent --projekt <slug> \"<Auftrag>\"");
 
         return Ok(());
     }
@@ -559,7 +559,7 @@ pub fn anzeigen(args: &[String]) -> Result<(), String> {
 /// `logs <id>` — was ein Lauf geschrieben hat.
 pub fn protokoll_zeigen(args: &[String]) -> Result<(), String> {
     let Some(id) = args.first() else {
-        return Err("Welcher Lauf? `ai-brain-cli logs <kennung>` (Liste: `agents`)".to_string());
+        return Err("Welcher Lauf? `ai-brain-harness logs <kennung>` (Liste: `agents`)".to_string());
     };
 
     let lauf = lesen(id)?;
@@ -585,7 +585,7 @@ pub fn protokoll_zeigen(args: &[String]) -> Result<(), String> {
     }
 
     if let Some(sitzung) = &lauf.sitzung {
-        println!("Sitzung: {sitzung}   (weiter mit: ai-brain-cli agent --sitzung {sitzung} \"…\")");
+        println!("Sitzung: {sitzung}   (weiter mit: ai-brain-harness agent --sitzung {sitzung} \"…\")");
     }
 
     println!();
@@ -626,7 +626,7 @@ pub fn protokoll_zeigen(args: &[String]) -> Result<(), String> {
 /// `stop <id>`
 pub fn stoppen(args: &[String]) -> Result<(), String> {
     let Some(id) = args.first() else {
-        return Err("Welcher Lauf? `ai-brain-cli stop <kennung>` (Liste: `agents`)".to_string());
+        return Err("Welcher Lauf? `ai-brain-harness stop <kennung>` (Liste: `agents`)".to_string());
     };
 
     println!("{}", beenden(id)?);
@@ -653,7 +653,7 @@ mod tests {
     fn register_haelt_zustand_und_erkennt_verschwundene() {
         let sicherung = std::env::var_os("XDG_STATE_HOME");
         let spielwiese =
-            std::env::temp_dir().join(format!("ai-brain-cli-register-{}", std::process::id()));
+            std::env::temp_dir().join(format!("ai-brain-harness-register-{}", std::process::id()));
         let _ = fs::remove_dir_all(&spielwiese);
         std::env::set_var("XDG_STATE_HOME", &spielwiese);
 

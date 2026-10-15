@@ -78,7 +78,7 @@ pub fn fuehren(args: &[String]) -> Result<(), String> {
         Some(anderes) => Err(format!(
             "`{anderes}` kenne ich nicht. Möglich: kontakte, senden, abholen, bestaetigen."
         )),
-        None => Err("`ai-brain-cli nachricht <kontakte|senden|abholen|bestaetigen>`".to_string()),
+        None => Err("`ai-brain-harness nachricht <kontakte|senden|abholen|bestaetigen>`".to_string()),
     }
 }
 
@@ -140,7 +140,7 @@ fn kontakte(args: &[String]) -> Result<(), String> {
     }
 
     println!();
-    println!("Schicken:  ai-brain-cli nachricht senden <person> <text>");
+    println!("Schicken:  ai-brain-harness nachricht senden <person> <text>");
 
     Ok(())
 }
@@ -166,7 +166,7 @@ fn senden(args: &[String]) -> Result<(), String> {
 
     let Some(person) = rest.first() else {
         return Err(
-            "An wen? `ai-brain-cli nachricht senden <person> <text>` (Liste: `nachricht kontakte`)"
+            "An wen? `ai-brain-harness nachricht senden <person> <text>` (Liste: `nachricht kontakte`)"
                 .to_string(),
         );
     };
@@ -256,14 +256,14 @@ fn abholen(args: &[String]) -> Result<(), String> {
         println!();
     }
 
-    println!("Eingereiht melden:  ai-brain-cli nachricht bestaetigen <nummer>");
+    println!("Eingereiht melden:  ai-brain-harness nachricht bestaetigen <nummer>");
 
     Ok(())
 }
 
 fn bestaetigen(args: &[String]) -> Result<(), String> {
     let Some(roh) = args.first() else {
-        return Err("`ai-brain-cli nachricht bestaetigen <nummer>`".to_string());
+        return Err("`ai-brain-harness nachricht bestaetigen <nummer>`".to_string());
     };
 
     let nummer: u64 = roh

@@ -4,7 +4,29 @@ Verbindet einen Rechner mit einer AI-Brain-Instanz, gibt ihm deren Werkzeuge
 *und* die Hoheit über diesen Rechner — und hält das Gespräch in einer eigenen
 Maske.
 
-Der Befehl heisst vorläufig weiter `ai-brain-cli`; der Einstieg ist `brain`.
+Der Befehl heisst `ai-brain-harness`, der Einstieg ist `brain`.
+
+> **Umbenennung, 15.10.2026.** Bis dahin hiess der Befehl `ai-brain-cli` (und
+> davor `ai-brain-companion`). Der Installer legt `ai-brain-cli` weiter als
+> Verweis an, bis alle Rechner umgestellt sind — ein Umbenennen, das unterwegs
+> MCP-Einträge, `brain`, Skripte und das imkr-Plugin bricht, ist teurer als ein
+> Verweis, der eine Weile mitläuft.
+>
+> Zwei Dinge behalten absichtlich den alten Namen:
+>
+> - **Die Ablage** (`~/.config/ai-brain-cli`). Sie ist unsichtbar, und ein
+>   zweiter Datenumzug auf drei Rechnern wäre Risiko ohne Gegenwert. `install.sh`
+>   schreibt dort hinein, *bevor* das Programm das erste Mal läuft.
+> - **Der Gedächtnis-Schlüssel** in AI Brain. Unter ihm liegen die Einträge des
+>   Harness — am 15.10.2026 waren es 139. Ihn umzubenennen würde sie verwaisen
+>   lassen, und das sähe aus wie „der Harness hat kein Gedächtnis".
+>
+> `ai-brain-harness configure` schreibt den MCP-Eintrag auf den neuen Pfad um
+> **und räumt Einträge früherer Fassungen weg**. Das ist kein Beiwerk: Auf
+> Laptop und Desktop zeigte der Eintrag am 15.10.2026 noch auf
+> `ai-brain-companion` vom August, und auf diesem Rechner auf eine veraltete
+> Kopie unter `/usr/local/bin`. Der Eintrag sah jeweils richtig aus; nur der
+> Pfad hinter ihm war alt.
 
 Du gibst eine Domain an, bestätigst einmal einen kurzen Code im Browser, fertig.
 Zugangsdaten tippst du nirgends ab; sie wandern nie durch die Zwischenablage.
@@ -102,7 +124,7 @@ Dokumentation belegt:
 ## Was dabei passiert
 
 ```
-ai-brain-cli                         AI Brain
+ai-brain-harness                         AI Brain
    |                                 |
    |-- Steckbrief lesen ------------>|   /.well-known/ai-brain
    |<-- Endpunkte + Client-ID -------|
@@ -136,7 +158,7 @@ curl -fsSL https://deine-brain-domain.de/install.sh | sh
 
 Jede Instanz liefert die CLI selbst aus. Der Vorteil: **Die Domain steckt
 schon im Befehl** — das Skript merkt sie sich, und danach genügt
-`ai-brain-cli connect` ohne Argument.
+`ai-brain-harness connect` ohne Argument.
 
 Ohne AI Brain ist die CLI ohnehin nutzlos; die Instanz ist also ihr
 natürlicher Ort. Wer AI Brain selbst betreibt, muss seine Leute damit nicht auf
@@ -160,7 +182,7 @@ Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`
 >   rustup target add x86_64-pc-windows-gnu
 >   cp -r /src/. /work/ && rm -rf /work/target
 >   cargo build --release --target x86_64-pc-windows-gnu
->   cp target/x86_64-pc-windows-gnu/release/ai-brain-cli.exe /out/'
+>   cp target/x86_64-pc-windows-gnu/release/ai-brain-harness.exe /out/'
 > ```
 >
 > Dauert etwa 20 Sekunden. `mingw-w64` und Rust sind frei — hier steht keine
@@ -173,7 +195,7 @@ Was eine Instanz bereithält, steht unter `https://deine-domain.de/install.json`
 ### Von GitHub
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-cli/main/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/peppermint-digital/ai-brain-harness/main/install.sh | sh
 ```
 
 > ⚠️ Aktuell existiert **kein Release**. Das Skript baut deshalb aus dem
@@ -198,13 +220,13 @@ sich selbst — zwei Befehle, ein bis zwei Minuten Rechenzeit:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install --git https://github.com/peppermint-digital/ai-brain-cli
+cargo install --git https://github.com/peppermint-digital/ai-brain-harness
 ```
 
 Danach liegt es in `~/.cargo/bin` und du verbindest wie überall:
 
 ```bash
-ai-brain-cli connect brain.example.com
+ai-brain-harness connect brain.example.com
 ```
 
 Das ist kein Notbehelf, sondern für einen einzelnen Mac der kürzere Weg — er
@@ -216,7 +238,7 @@ Ergebnis auf die Instanz:
 ```bash
 # auf dem Mac
 cargo build --release
-# Datei als ai-brain-cli-aarch64-apple-darwin auf die Instanz bringen,
+# Datei als ai-brain-harness-aarch64-apple-darwin auf die Instanz bringen,
 # dort:  php artisan companion:fetch --von=/pfad/zum/ordner
 ```
 
@@ -235,14 +257,14 @@ merkt sich die Adresse unter `%APPDATA%\ai-brain-cli\instanz` und ergänzt
 den PATH — den des **Benutzers**, nicht den des Systems, der bräuchte
 Administratorrechte.
 
-Danach ein neues Terminal öffnen, dann genügt `ai-brain-cli connect` ohne
+Danach ein neues Terminal öffnen, dann genügt `ai-brain-harness connect` ohne
 Argument.
 
 Wenn du die Adresse nicht zur Hand hast, geht auch der Weg über dieses
 Repository — das Skript fragt dann danach und holt den Rest von dort:
 
 ```powershell
-irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-cli/main/install.ps1 | iex
+irm https://raw.githubusercontent.com/peppermint-digital/ai-brain-harness/main/install.ps1 | iex
 ```
 
 Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
@@ -250,10 +272,10 @@ Alternativ funktioniert unter WSL die Linux-Anleitung unverändert.
 ### Von Hand
 
 ```bash
-git clone https://github.com/peppermint-digital/ai-brain-cli.git
-cd ai-brain-cli
+git clone https://github.com/peppermint-digital/ai-brain-harness.git
+cd ai-brain-harness
 cargo build --release
-install -m 755 target/release/ai-brain-cli ~/.local/bin/
+install -m 755 target/release/ai-brain-harness ~/.local/bin/
 ```
 
 ### Plattformen
@@ -277,7 +299,7 @@ nimmt das Installationsskript die Markierung mit `Unblock-File` weg.
 ## Verbinden
 
 ```bash
-ai-brain-cli connect brain.example.com
+ai-brain-harness connect brain.example.com
 ```
 
 Die CLI zeigt einen Code und eine Adresse. Öffne sie, melde dich an,
@@ -323,8 +345,8 @@ Stift-Symbol. Neu koppeln ist dafür nicht nötig.
 ## Skills und Agents abgleichen
 
 ```bash
-ai-brain-cli sync           # zeigt nur, was sich ändern würde
-ai-brain-cli sync --apply   # schreibt
+ai-brain-harness sync           # zeigt nur, was sich ändern würde
+ai-brain-harness sync --apply   # schreibt
 ```
 
 Skills landen unter `~/.claude/skills/`, Agents unter `~/.claude/agents/`.
@@ -375,11 +397,11 @@ entscheidest, was drauf soll, statt 194 Einträge vorgesetzt zu bekommen.
 ### Abgewähltes entfernen
 
 ```bash
-ai-brain-cli sync --apply --aufraeumen
+ai-brain-harness sync --apply --aufraeumen
 ```
 
 Entfernt Einträge, die nicht mehr ausgewählt sind. Aber nur die, die **der
-ai-brain-cli selbst geschrieben hat** und die seither **unverändert** sind.
+ai-brain-harness selbst geschrieben hat** und die seither **unverändert** sind.
 
 Alles andere bleibt liegen, auch mit `--aufraeumen`: deine Eigenbauten, alles
 was du verändert hast, und alles was sie nie angelegt hat. Eine Synchronisation,
@@ -390,8 +412,8 @@ Ohne `--aufraeumen` wird nichts entfernt — es wird nur gemeldet.
 ## Etwas zurückgeben
 
 ```bash
-ai-brain-cli publish mein-skill
-ai-brain-cli publish mein-skill --grund "Abschnitt zu X ergänzt"
+ai-brain-harness publish mein-skill
+ai-brain-harness publish mein-skill --grund "Abschnitt zu X ergänzt"
 ```
 
 Nimmt einen Eintrag aus `~/.claude/skills/` oder `~/.claude/agents/` und legt
@@ -422,10 +444,10 @@ ließe alles als „geändert" erscheinen.
 ## Agentenläufe
 
 ```bash
-ai-brain-cli agent --task 7666
-ai-brain-cli agent --projekt ai-brain "Changelog für heute schreiben"
-ai-brain-cli agent --modell codex --dir ~/Development/crm "Tests reparieren"
-ai-brain-cli agent --task 7666 --trocken     # nur zeigen, was passieren würde
+ai-brain-harness agent --task 7666
+ai-brain-harness agent --projekt ai-brain "Changelog für heute schreiben"
+ai-brain-harness agent --modell codex --dir ~/Development/crm "Tests reparieren"
+ai-brain-harness agent --task 7666 --trocken     # nur zeigen, was passieren würde
 ```
 
 Startet einen Agenten auf diesem Rechner, meldet ihn im Register an und
@@ -455,10 +477,10 @@ eigenes Transkript.
 ### Eine Unterhaltung weiterführen
 
 ```bash
-ai-brain-cli agent --projekt x "Merke dir die Zahl 4711."
-ai-brain-cli logs <kennung>            # zeigt die Sitzungskennung
-ai-brain-cli agent --sitzung <uuid> "Welche Zahl war es?"   # → 4711
-ai-brain-cli agent --fortsetzen "..."  # die letzte hier
+ai-brain-harness agent --projekt x "Merke dir die Zahl 4711."
+ai-brain-harness logs <kennung>            # zeigt die Sitzungskennung
+ai-brain-harness agent --sitzung <uuid> "Welche Zahl war es?"   # → 4711
+ai-brain-harness agent --fortsetzen "..."  # die letzte hier
 ```
 
 Ohne diese Schalter beginnt jeder Lauf von vorn. Das war die grösste Lücke
@@ -510,7 +532,7 @@ trägt sie bewusst ein.
 ### In einem imkr-Pane statt als Kindprozess
 
 ```bash
-ai-brain-cli agent --imkr --task 7667
+ai-brain-harness agent --imkr --task 7667
 ```
 
 Ein beaufsichtigter Lauf ist ein Kindprozess: Die CLI hält ihn, schreibt sein
@@ -562,9 +584,9 @@ Freigabe. Das ist Absicht: Ein Riegel, der am Alltag hängenbleibt, wird
 abgeschaltet.
 
 ```bash
-ai-brain-cli freigabe                        # was freigegeben ist
-ai-brain-cli freigabe add ~/Development      # mit Unterverzeichnissen
-ai-brain-cli freigabe rm ~/Development
+ai-brain-harness freigabe                        # was freigegeben ist
+ai-brain-harness freigabe add ~/Development      # mit Unterverzeichnissen
+ai-brain-harness freigabe rm ~/Development
 ```
 
 **Ohne Freigabedatei gibt es keinen Vollzugriff — nirgends.** Pfade werden
@@ -599,11 +621,11 @@ anderes zu starten.
 Die CLI hält mehrere Agentenläufe gleichzeitig und gibt Auskunft über sie.
 
 ```bash
-ai-brain-cli agents                  # was hier läuft
-ai-brain-cli agents --json           # dasselbe für Programme
-ai-brain-cli logs <kennung>          # was ein Lauf geschrieben hat
-ai-brain-cli logs <kennung> --zeilen 500
-ai-brain-cli stop <kennung>          # einen Lauf beenden
+ai-brain-harness agents                  # was hier läuft
+ai-brain-harness agents --json           # dasselbe für Programme
+ai-brain-harness logs <kennung>          # was ein Lauf geschrieben hat
+ai-brain-harness logs <kennung> --zeilen 500
+ai-brain-harness stop <kennung>          # einen Lauf beenden
 ```
 
 ```
@@ -650,10 +672,10 @@ damit auch zwischen zwei Prozessen eindeutig.
 ## Weitere Befehle
 
 ```bash
-ai-brain-cli status            # Zeigt die aktuelle Verbindung
-ai-brain-cli configure         # Trägt den MCP-Server nachträglich ein (Claude + Codex)
-ai-brain-cli disconnect        # Entfernt die lokale Verbindung
-ai-brain-cli mcp               # Läuft als MCP-Server (startet Claude Code selbst)
+ai-brain-harness status            # Zeigt die aktuelle Verbindung
+ai-brain-harness configure         # Trägt den MCP-Server nachträglich ein (Claude + Codex)
+ai-brain-harness disconnect        # Entfernt die lokale Verbindung
+ai-brain-harness mcp               # Läuft als MCP-Server (startet Claude Code selbst)
 ```
 
 `mcp` rufst du nicht von Hand auf — das macht Claude Code. Der Befehl hält die
@@ -679,7 +701,7 @@ Rechnern keine zweite Sicherung neben der vorhandenen entsteht.
 
 ### Umstieg von `ai-brain-companion`
 
-Nichts zu tun. Beim ersten Start holt `ai-brain-cli` die Ablage von
+Nichts zu tun. Beim ersten Start holt `ai-brain-harness` die Ablage von
 `~/.config/ai-brain-companion/` herueber — die Verbindung, den Abgleichstand
 und die gesicherten Fassungen — und sagt, dass es das getan hat. Neu koppeln
 ist **nicht** noetig und waere schaedlich: `connect` legte einen zweiten

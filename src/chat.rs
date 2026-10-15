@@ -206,7 +206,7 @@ fn schirm(
     println!();
 }
 
-/// `brain` / `ai-brain-cli chat [...]`
+/// `brain` / `ai-brain-harness chat [...]`
 pub fn starten(args: &[String]) -> Result<(), String> {
     let wert = |name: &str| -> Option<String> {
         args.iter()
@@ -239,7 +239,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     if rechte != Rechte::Fragend && !freigabe::ist_frei(&verzeichnis) {
         return Err(format!(
             "{} ist nicht freigegeben — mehr Rechte gelten nur in freigegebenen Verzeichnissen.\n\
-             Freigeben:  ai-brain-cli freigabe add {}",
+             Freigeben:  ai-brain-harness freigabe add {}",
             verzeichnis.display(),
             verzeichnis.display()
         ));
@@ -284,7 +284,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
 
         return Err(format!(
             "`chat` braucht ein Terminal — die Eingabe kommt hier aus einer Datei oder Pipe.\n\
-             Fuer einen unbeaufsichtigten Lauf:  ai-brain-cli agent --aufgabe \"…\"{}",
+             Fuer einen unbeaufsichtigten Lauf:  ai-brain-harness agent --aufgabe \"…\"{}",
             projekt.map(|p| format!(" --projekt {p}")).unwrap_or_default()
         ));
     }
@@ -321,7 +321,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     register::abschliessen(&lauf.id, status.code(), None)?;
 
     println!();
-    println!("  Gespräch beendet. Fortsetzen:  ai-brain-cli chat --weiter");
+    println!("  Gespräch beendet. Fortsetzen:  ai-brain-harness chat --weiter");
 
     Ok(())
 }

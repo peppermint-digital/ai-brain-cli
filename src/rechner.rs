@@ -182,12 +182,12 @@ const WERKZEUGE: &[Werkzeug] = &[
     },
 ];
 
-/// `ai-brain-cli rechner-mcp` — der Werkzeugserver fuer diesen Rechner.
+/// `ai-brain-harness rechner-mcp` — der Werkzeugserver fuer diesen Rechner.
 pub fn serve() -> Result<(), String> {
     let hoheit = Hoheit::aus_umgebung();
 
     eprintln!(
-        "ai-brain-cli: Rechner-Werkzeuge bereit ({})",
+        "ai-brain-harness: Rechner-Werkzeuge bereit ({})",
         match hoheit {
             Hoheit::Lesend => "nur lesend",
             Hoheit::Steuernd => "steuernd",
@@ -206,7 +206,7 @@ pub fn serve() -> Result<(), String> {
         }
 
         let Ok(nachricht) = serde_json::from_str::<serde_json::Value>(roh) else {
-            eprintln!("ai-brain-cli: ungueltiges JSON uebersprungen");
+            eprintln!("ai-brain-harness: ungueltiges JSON uebersprungen");
             continue;
         };
 

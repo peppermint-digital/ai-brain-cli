@@ -130,7 +130,7 @@ pub fn anzeigen(args: &[String]) -> Result<(), String> {
     }
 
     println!();
-    println!("Annehmen und starten:  ai-brain-cli auftrag <nummer>");
+    println!("Annehmen und starten:  ai-brain-harness auftrag <nummer>");
 
     Ok(())
 }
@@ -142,7 +142,7 @@ pub fn anzeigen(args: &[String]) -> Result<(), String> {
 /// an derselben Aufgabe.
 pub fn annehmen(args: &[String]) -> Result<(), String> {
     let Some(roh) = args.first() else {
-        return Err("Welcher Auftrag? `ai-brain-cli auftrag <nummer>` (Liste: `auftraege`)".to_string());
+        return Err("Welcher Auftrag? `ai-brain-harness auftrag <nummer>` (Liste: `auftraege`)".to_string());
     };
 
     let gesucht: u64 = roh
@@ -160,7 +160,7 @@ pub fn annehmen(args: &[String]) -> Result<(), String> {
     let Some(ziel) = offen.iter().find(|a| a.id == gesucht) else {
         return Err(format!(
             "Auftrag #{gesucht} liegt für diesen Rechner nicht (mehr) bereit.\n\
-             Was anliegt:  ai-brain-cli auftraege"
+             Was anliegt:  ai-brain-harness auftraege"
         ));
     };
 
@@ -206,7 +206,7 @@ pub fn annehmen(args: &[String]) -> Result<(), String> {
 
     if let Err(e) = melden(&connection, gesucht, status, &text) {
         eprintln!("Hinweis: Ergebnis von Auftrag #{gesucht} nicht gemeldet ({e}).");
-        eprintln!("Nachtragen: ai-brain-cli auftrag-melden {gesucht} {status}");
+        eprintln!("Nachtragen: ai-brain-harness auftrag-melden {gesucht} {status}");
     }
 
     ausgang
@@ -242,7 +242,7 @@ fn melden(
 pub fn nachmelden(args: &[String]) -> Result<(), String> {
     let (Some(roh), Some(status)) = (args.first(), args.get(1)) else {
         return Err(
-            "`ai-brain-cli auftrag-melden <nummer> <completed|failed> [text]`".to_string(),
+            "`ai-brain-harness auftrag-melden <nummer> <completed|failed> [text]`".to_string(),
         );
     };
 

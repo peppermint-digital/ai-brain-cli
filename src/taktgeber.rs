@@ -132,7 +132,7 @@ fn einrichten(takt: &str) -> Result<(), String> {
     }
 
     println!();
-    println!("Zustand ansehen:  ai-brain-cli taktgeber");
+    println!("Zustand ansehen:  ai-brain-harness taktgeber");
 
     Ok(())
 }
@@ -173,7 +173,7 @@ fn zustand() -> Result<(), String> {
         println!("Ohne ihn holt niemand die Daueraufträge dieses Rechners ab — und");
         println!("das sieht aus wie Ruhe, bis die Stillfrist zuschlägt.");
         println!();
-        println!("Einrichten:  ai-brain-cli taktgeber --einrichten");
+        println!("Einrichten:  ai-brain-harness taktgeber --einrichten");
 
         return Ok(());
     }
@@ -262,7 +262,7 @@ mod tests {
 
     #[test]
     fn der_dienst_ruft_den_abholer_still() {
-        let (dienst, _) = units("/usr/bin/ai-brain-cli", "*-*-* *:00/5:00");
+        let (dienst, _) = units("/usr/bin/ai-brain-harness", "*-*-* *:00/5:00");
 
         assert!(dienst.contains("daueraufgaben --fahren --still"));
         assert!(dienst.contains("Type=oneshot"));

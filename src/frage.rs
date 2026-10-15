@@ -1,7 +1,7 @@
 //! Rückfragen — und die Regel, wann keine gestellt wird.
 //!
 //! Der wichtigste Teil ist nicht das Fragen, sondern das Schweigen: Läuft der
-//! ai-brain-cli ohne Terminal (Skript, Cron, Agent), darf **nie** gefragt werden.
+//! ai-brain-harness ohne Terminal (Skript, Cron, Agent), darf **nie** gefragt werden.
 //! Eine Frage, die niemand sieht, hält den Lauf auf, bis das Zeitlimit greift —
 //! und was dann als Fehler gemeldet wird, sieht aus wie ein Ausfall der
 //! Instanz, obwohl nur jemand auf ein „j" gewartet hat.

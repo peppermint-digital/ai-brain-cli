@@ -1,7 +1,12 @@
-//! AI Brain CLI
+//! AI Brain Harness
 //!
-//! Verbindet einen Rechner mit einer AI-Brain-Instanz und stellt deren
-//! MCP-Server danach für Claude Code bereit.
+//! Verbindet einen Rechner mit einer AI-Brain-Instanz, gibt ihm deren Werkzeuge
+//! *und* die Hoheit über diesen Rechner — und hält das Gespräch in einer
+//! eigenen Maske.
+//!
+//! **Der Befehl hiess bis zum 15.10.2026 `ai-brain-cli`.** Der alte Name bleibt
+//! als Verweis, bis alle Rechner umgestellt sind. Die Ablage unter
+//! `~/.config/ai-brain-cli` behält ihren Namen — siehe `config::alter_config_dir`.
 //!
 //! Zwei Aufgaben, zwei Unterbefehle:
 //!
@@ -42,36 +47,36 @@ mod sync;
 use std::process::ExitCode;
 
 const USAGE: &str = "\
-AI Brain CLI
+AI Brain Harness
 
 Aufrufe:
-  ai-brain-cli connect [domain]   Rechner mit einer AI-Brain-Instanz verbinden
+  ai-brain-harness connect [domain]   Rechner mit einer AI-Brain-Instanz verbinden
                                   (ohne Angabe: die Instanz, von der dieses
                                   Programm kam)
-  ai-brain-cli mcp                Als MCP-Server laufen (startet Claude Code selbst)
-  ai-brain-cli select             Waehlen, welche Eintraege dieser Rechner bekommt
-  ai-brain-cli sync               Skills und Agents aus dem Repository abgleichen
-  ai-brain-cli erinnerungen [..]  Das Gedaechtnis mit AI Brain abgleichen
-  ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
-  ai-brain-cli chat [...]         Ein Gespraech hier fuehren (kurz: `brain`)
-  ai-brain-cli agent [...]        Einen Agentenlauf hier starten
-  ai-brain-cli agents             Welche Agentenlaeufe hier laufen
-  ai-brain-cli aufgaben [...]     Offene Aufgaben eines Projekts (--projekt, --json)
-  ai-brain-cli auftraege          Was AI Brain fuer diesen Rechner bereitlegt
-  ai-brain-cli auftrag <nummer>   Einen Auftrag annehmen und abarbeiten
-  ai-brain-cli auftrag-melden ..  Ergebnis eines Auftrags nachtragen
-  ai-brain-cli nachricht ..       Nachrichten zwischen imkrs:
+  ai-brain-harness mcp                Als MCP-Server laufen (startet Claude Code selbst)
+  ai-brain-harness select             Waehlen, welche Eintraege dieser Rechner bekommt
+  ai-brain-harness sync               Skills und Agents aus dem Repository abgleichen
+  ai-brain-harness erinnerungen [..]  Das Gedaechtnis mit AI Brain abgleichen
+  ai-brain-harness publish <name>     Einen lokalen Eintrag ins Repository geben
+  ai-brain-harness chat [...]         Ein Gespraech hier fuehren (kurz: `brain`)
+  ai-brain-harness agent [...]        Einen Agentenlauf hier starten
+  ai-brain-harness agents             Welche Agentenlaeufe hier laufen
+  ai-brain-harness aufgaben [...]     Offene Aufgaben eines Projekts (--projekt, --json)
+  ai-brain-harness auftraege          Was AI Brain fuer diesen Rechner bereitlegt
+  ai-brain-harness auftrag <nummer>   Einen Auftrag annehmen und abarbeiten
+  ai-brain-harness auftrag-melden ..  Ergebnis eines Auftrags nachtragen
+  ai-brain-harness nachricht ..       Nachrichten zwischen imkrs:
                                   kontakte | senden <person> <text> |
                                   abholen | bestaetigen <nummer>
-  ai-brain-cli freigabe [...]     Verzeichnisse fuer Laeufe mit mehr Rechten
-  ai-brain-cli logs <kennung>     Was ein Lauf geschrieben hat
-  ai-brain-cli stop <kennung>     Einen Lauf beenden
-  ai-brain-cli status             Zeigt die aktuelle Verbindung
-  ai-brain-cli configure          Traegt den MCP-Server in Claude Code und Codex ein
-  ai-brain-cli disconnect         Entfernt die lokale Verbindung
+  ai-brain-harness freigabe [...]     Verzeichnisse fuer Laeufe mit mehr Rechten
+  ai-brain-harness logs <kennung>     Was ein Lauf geschrieben hat
+  ai-brain-harness stop <kennung>     Einen Lauf beenden
+  ai-brain-harness status             Zeigt die aktuelle Verbindung
+  ai-brain-harness configure          Traegt den MCP-Server in Claude Code und Codex ein
+  ai-brain-harness disconnect         Entfernt die lokale Verbindung
 
 Beispiel:
-  ai-brain-cli connect brain.proxy.peppermint-digital.com
+  ai-brain-harness connect brain.proxy.peppermint-digital.com
 
 Optionen für `sync`:
   --apply               Änderungen wirklich schreiben (ohne: erst fragen)
@@ -103,7 +108,7 @@ Optionen für `agent`:
   --trocken             Nur zeigen, was gestartet wuerde, samt Vorlauf
 
   --schreibend und --vollzugriff gehen NUR in freigegebenen Verzeichnissen:
-    ai-brain-cli freigabe add ~/Development
+    ai-brain-harness freigabe add ~/Development
 
   Freie Woerter werden der Auftrag: `agent --projekt x \"Changelog schreiben\"`.
 
@@ -141,8 +146,15 @@ fn configure_tools() -> Result<(), String> {
     println!("Gerät   : {}", connection.device_name);
     println!();
 
-    let path = config::write_claude_config()?;
+    let (path, geraeumt) = config::write_claude_config_mit_bericht()?;
     println!("Claude Code : {}", path.display());
+
+    // Was weggeraeumt wurde, gehoert gesagt. Ein Eintrag, der ohne ein Wort
+    // verschwindet, ist spaeter nicht nachvollziehbar — und wer ihn vermisst,
+    // sucht an der falschen Stelle.
+    for schluessel in &geraeumt {
+        println!("              alter Eintrag „{schluessel}“ entfernt (zeigte auf eine frühere Fassung)");
+    }
 
     match config::write_codex_config()? {
         Some(_) => println!("Codex       : Eintrag „ai-brain“ angelegt"),

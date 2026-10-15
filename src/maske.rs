@@ -18,9 +18,9 @@
 //! Die Maske haengt beide an:
 //!
 //! - `ai-brain` — der Durchgriff auf die Instanz (Aufgaben, Gedaechtnis,
-//!   Server, Rechte-Fenster). Das ist `ai-brain-cli mcp`.
+//!   Server, Rechte-Fenster). Das ist `ai-brain-harness mcp`.
 //! - `rechner` — dieser Rechner (Dienste, Platten, Bildschirm, Tastatur).
-//!   Das ist `ai-brain-cli rechner-mcp`, siehe `rechner.rs`.
+//!   Das ist `ai-brain-harness rechner-mcp`, siehe `rechner.rs`.
 //!
 //! Damit hat ein Gespraech beides zugleich, und genau das war der Zweck:
 //! Hermes konnte den Rechner, aber nicht unsere Daten; die Werkzeuge von AI
@@ -74,7 +74,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     if rechte != Rechte::Fragend && !freigabe::ist_frei(&verzeichnis) {
         return Err(format!(
             "{} ist nicht freigegeben — steuernde Rechte gelten nur in freigegebenen Verzeichnissen.\n\
-             Freigeben:  ai-brain-cli freigabe add {}",
+             Freigeben:  ai-brain-harness freigabe add {}",
             verzeichnis.display(),
             verzeichnis.display()
         ));
@@ -89,7 +89,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     if !std::io::IsTerminal::is_terminal(&std::io::stdin()) {
         return Err(
             "Die Maske braucht ein Terminal — die Eingabe kommt hier aus einer Datei oder Pipe.\n\
-             Fuer einen unbeaufsichtigten Lauf:  ai-brain-cli agent --aufgabe \"…\""
+             Fuer einen unbeaufsichtigten Lauf:  ai-brain-harness agent --aufgabe \"…\""
                 .to_string(),
         );
     }
@@ -247,7 +247,7 @@ fn befehl(
                     println!("  Rechte: {}", rechte_lesbar(*rechte));
                 } else {
                     eprintln!(
-                        "  {} ist nicht freigegeben.\n  Freigeben:  ai-brain-cli freigabe add {}",
+                        "  {} ist nicht freigegeben.\n  Freigeben:  ai-brain-harness freigabe add {}",
                         verzeichnis.display(),
                         verzeichnis.display()
                     );
@@ -590,7 +590,7 @@ mod tests {
 
     #[test]
     fn lesende_rechte_zaehlen_die_erlaubten_werkzeuge_auf() {
-        let args = motor_args(Path::new("/usr/bin/ai-brain-cli"), Rechte::Fragend, None);
+        let args = motor_args(Path::new("/usr/bin/ai-brain-harness"), Rechte::Fragend, None);
 
         assert!(args.iter().any(|a| a == "--allowedTools"));
         assert!(args.iter().any(|a| a.contains("mcp__rechner")));
@@ -600,7 +600,7 @@ mod tests {
 
     #[test]
     fn steuernde_rechte_zaehlen_nichts_auf() {
-        let args = motor_args(Path::new("/usr/bin/ai-brain-cli"), Rechte::Vollzugriff, None);
+        let args = motor_args(Path::new("/usr/bin/ai-brain-harness"), Rechte::Vollzugriff, None);
 
         assert!(args.iter().any(|a| a == "bypassPermissions"));
         assert!(!args.iter().any(|a| a == "--allowedTools"));

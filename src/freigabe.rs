@@ -118,7 +118,7 @@ fn zeigen() {
         println!("fragen, bevor sie etwas tun. `--schreibend` und `--vollzugriff`");
         println!("brauchen eine Freigabe:");
         println!();
-        println!("  ai-brain-cli freigabe add ~/Development");
+        println!("  ai-brain-harness freigabe add ~/Development");
 
         return;
     }
@@ -134,7 +134,7 @@ fn zeigen() {
 
 fn hinzufuegen(args: &[String]) -> Result<(), String> {
     let Some(roh) = args.first() else {
-        return Err("Welches Verzeichnis? `ai-brain-cli freigabe add <pfad>`".to_string());
+        return Err("Welches Verzeichnis? `ai-brain-harness freigabe add <pfad>`".to_string());
     };
 
     let pfad = aufloesen(roh)?;
@@ -152,7 +152,7 @@ fn hinzufuegen(args: &[String]) -> Result<(), String> {
         return Err(format!(
             "{} freizugeben heisst: alles, auch ~/.ssh und die Zugangsdaten dieser CLI.\n\
              Gib ein Projektverzeichnis frei statt den ganzen Baum. Wenn du es \
-             wirklich willst:  ai-brain-cli freigabe add {} --trotzdem",
+             wirklich willst:  ai-brain-harness freigabe add {} --trotzdem",
             pfad.display(),
             roh
         ));
@@ -184,7 +184,7 @@ fn hinzufuegen(args: &[String]) -> Result<(), String> {
 
     if heikel {
         println!();
-        println!("⚠  Das ist der ganze Baum. `ai-brain-cli freigabe rm` nimmt es zurück.");
+        println!("⚠  Das ist der ganze Baum. `ai-brain-harness freigabe rm` nimmt es zurück.");
     }
 
     Ok(())
@@ -192,7 +192,7 @@ fn hinzufuegen(args: &[String]) -> Result<(), String> {
 
 fn entfernen(args: &[String]) -> Result<(), String> {
     let Some(roh) = args.first() else {
-        return Err("Welches Verzeichnis? `ai-brain-cli freigabe rm <pfad>`".to_string());
+        return Err("Welches Verzeichnis? `ai-brain-harness freigabe rm <pfad>`".to_string());
     };
 
     let mut freigaben = laden();
@@ -208,7 +208,7 @@ fn entfernen(args: &[String]) -> Result<(), String> {
 
     if freigaben.verzeichnisse.len() == vorher {
         return Err(format!(
-            "{gesucht} war nicht freigegeben. Liste: ai-brain-cli freigabe"
+            "{gesucht} war nicht freigegeben. Liste: ai-brain-harness freigabe"
         ));
     }
 

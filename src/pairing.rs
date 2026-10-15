@@ -4,7 +4,7 @@
 //! Zugangstoken, sondern ein eigener Gerätezugang: eigene Client-ID, eigenes
 //! Secret, Besitzer ist der Mensch, der im Browser bestätigt hat. Erst dadurch
 //! bleibt die Zurechnung pro Gerät erhalten — ein geteilter Token für alle
-//! ai-brain-clis würde genau die Unterscheidung einebnen, um die es geht.
+//! ai-brain-harnesss würde genau die Unterscheidung einebnen, um die es geht.
 
 use crate::config::{self, Connection};
 use crate::discovery;
@@ -106,13 +106,13 @@ pub fn connect(args: &[String]) -> Result<(), String> {
                 format!("{z}Für ein Update genügt es, das Programm zu ersetzen — die Verbindung"),
                 format!("{z}bleibt bestehen. Weiter geht es mit:"),
                 z.to_string(),
-                format!("{z}  ai-brain-cli status"),
-                format!("{z}  ai-brain-cli sync --apply"),
+                format!("{z}  ai-brain-harness status"),
+                format!("{z}  ai-brain-harness sync --apply"),
                 z.to_string(),
                 format!("{z}Soll wirklich ein ZWEITER Gerätezugang entstehen (etwa für ein"),
                 format!("{z}zweites Konto auf dieser Maschine), dann ausdrücklich:"),
                 z.to_string(),
-                format!("{z}  ai-brain-cli connect --neu"),
+                format!("{z}  ai-brain-harness connect --neu"),
                 z.to_string(),
                 format!("{z}Bestehende Verbindung ersetzen: erst disconnect, dann connect."),
             ]
@@ -126,7 +126,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
     let domain = match domain {
         Some(d) => d,
         None => gemerkte_instanz().ok_or_else(|| {
-            "Welche Instanz? Beispiel:\n  ai-brain-cli connect brain.example.com\n\n             Kam das Programm von einer Instanz, steht ihre Adresse in\n             ~/.config/ai-brain-cli/instanz — dort ist sie offenbar nicht."
+            "Welche Instanz? Beispiel:\n  ai-brain-harness connect brain.example.com\n\n             Kam das Programm von einer Instanz, steht ihre Adresse in\n             ~/.config/ai-brain-harness/instanz — dort ist sie offenbar nicht."
                 .to_string()
         })?,
     };
@@ -219,7 +219,7 @@ pub fn connect(args: &[String]) -> Result<(), String> {
                 // das Ergebnis bringen.
                 eprintln!();
                 eprintln!("Hinweis: Claude-Code-Konfiguration nicht angepasst ({err}).");
-                eprintln!("Trag den MCP-Server „ai-brain“ von Hand ein, Befehl: ai-brain-cli mcp");
+                eprintln!("Trag den MCP-Server „ai-brain“ von Hand ein, Befehl: ai-brain-harness mcp");
             }
         }
     }

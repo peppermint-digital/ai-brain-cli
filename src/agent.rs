@@ -403,8 +403,8 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
     if projekt.is_none() && task.is_none() && freie.is_empty() {
         return Err("Ohne Auftrag, Projekt oder Aufgabe gibt es nichts zu tun.\n\
                     Beispiele:\n  \
-                    ai-brain-cli agent --task 7666\n  \
-                    ai-brain-cli agent --projekt ai-brain \"Changelog schreiben\""
+                    ai-brain-harness agent --task 7666\n  \
+                    ai-brain-harness agent --projekt ai-brain \"Changelog schreiben\""
             .to_string());
     }
 
@@ -437,7 +437,7 @@ pub fn auftrag_lesen(args: &[String], arbeitsverzeichnis: PathBuf) -> Result<Auf
 pub fn vorlauf(auftrag: &Auftrag, aufgabe: Option<&str>) -> String {
     let mut text = String::new();
 
-    text.push_str("Du läufst als AI-Brain-Agent auf diesem Rechner, gestartet über `ai-brain-cli agent`.\n\n");
+    text.push_str("Du läufst als AI-Brain-Agent auf diesem Rechner, gestartet über `ai-brain-harness agent`.\n\n");
 
     if let Some(projekt) = &auftrag.projekt {
         text.push_str(&format!("Projekt: {projekt}\n"));
@@ -538,7 +538,7 @@ fn umgebung_pruefen(auftrag: &Auftrag) -> Result<Vec<String>, String> {
     if !mcp_eingetragen() {
         hinweise.push(
             "Kein MCP-Eintrag für AI Brain gefunden — der Agent läuft dann ohne \
-             die AI-Brain-Werkzeuge. `ai-brain-cli configure` trägt ihn ein."
+             die AI-Brain-Werkzeuge. `ai-brain-harness configure` trägt ihn ein."
                 .to_string(),
         );
     }
@@ -611,7 +611,7 @@ fn mcp_eingetragen() -> bool {
 fn sitzungskennung(lauf_id: &str) -> String {
     use sha2::{Digest, Sha256};
 
-    let digest = Sha256::digest(format!("ai-brain-cli-sitzung:{lauf_id}").as_bytes());
+    let digest = Sha256::digest(format!("ai-brain-harness-sitzung:{lauf_id}").as_bytes());
     let mut b = [0u8; 16];
     b.copy_from_slice(&digest[..16]);
 
@@ -666,7 +666,7 @@ fn melden(
     };
 
     let mut argumente = serde_json::json!({
-        "agent": "ai-brain-cli",
+        "agent": "ai-brain-harness",
         "action": aktion,
         "status": status,
         "context": kontext,
@@ -813,7 +813,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
                 println!();
                 println!("  imkr read {adresse}");
                 println!("  imkr msg {adresse} \"...\"");
-                println!("  ai-brain-cli agents");
+                println!("  ai-brain-harness agents");
 
                 return Ok(());
             }
@@ -879,8 +879,8 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     println!("  Verzeichnis : {}", auftrag.verzeichnis.display());
     println!("  Protokoll   : {}", protokoll.display());
     println!();
-    println!("  ai-brain-cli agents");
-    println!("  ai-brain-cli logs {}", lauf.id);
+    println!("  ai-brain-harness agents");
+    println!("  ai-brain-harness logs {}", lauf.id);
 
     // Abfrage-Schleife im Hauptfaden: Lebenszeichen schreiben, Zeitgrenze
     // durchsetzen, Ende erkennen. In Sekundenscheiben, damit das Ende nicht bis
@@ -954,14 +954,14 @@ pub fn starten(args: &[String]) -> Result<(), String> {
             );
 
             if let Some(grund) = abgebrochen {
-                return Err(format!("{grund}. Protokoll: ai-brain-cli logs {}", lauf.id));
+                return Err(format!("{grund}. Protokoll: ai-brain-harness logs {}", lauf.id));
             }
 
             if code == Some(0) {
                 Ok(())
             } else {
                 Err(format!(
-                    "Der Lauf endete mit Code {}. Protokoll: ai-brain-cli logs {}",
+                    "Der Lauf endete mit Code {}. Protokoll: ai-brain-harness logs {}",
                     code.map(|c| c.to_string()).unwrap_or_else(|| "?".into()),
                     lauf.id
                 ))
@@ -1006,8 +1006,8 @@ fn rechte_pruefen(auftrag: &Auftrag) -> Result<(), String> {
         "{} ist nicht freigegeben — `{}` gibt es dort nicht.\n\n\
          Ein Lauf ohne diese Schalter fragt, bevor er etwas tut, und braucht \
          keine Freigabe. Erst wenn er nicht mehr fragt, zählt das Verzeichnis:\n\n  \
-         ai-brain-cli freigabe add {}\n\n\
-         Was freigegeben ist:  ai-brain-cli freigabe",
+         ai-brain-harness freigabe add {}\n\n\
+         Was freigegeben ist:  ai-brain-harness freigabe",
         verzeichnis.display(),
         if auftrag.rechte == Rechte::Vollzugriff {
             "--vollzugriff"
