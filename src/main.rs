@@ -23,6 +23,7 @@ mod aufgaben;
 mod auftrag;
 mod chat;
 mod config;
+mod dauerauftrag;
 mod discovery;
 mod erinnerungen;
 mod freigabe;
@@ -34,6 +35,7 @@ mod nachricht;
 mod pairing;
 mod rechner;
 mod register;
+mod taktgeber;
 mod select;
 mod sync;
 
@@ -181,6 +183,8 @@ fn main() -> ExitCode {
         }
         Some("agents") => register::anzeigen(&args[1..]),
         Some("aufgaben") => aufgaben::anzeigen(&args[1..]),
+        Some("daueraufgaben") => dauerauftrag::anzeigen(&args[1..]),
+        Some("taktgeber") => taktgeber::verwalten(&args[1..]),
         Some("erinnerungen") => erinnerungen::abgleichen(&args[1..]),
         Some("auftraege") => auftrag::anzeigen(&args[1..]),
         Some("auftrag") => auftrag::annehmen(&args[1..]),

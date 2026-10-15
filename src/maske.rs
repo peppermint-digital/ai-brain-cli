@@ -209,6 +209,11 @@ fn befehl(
 
         "/auftraege" => melden(auftrag::anzeigen(&[])),
 
+        "/daueraufgaben" => match crate::dauerauftrag::fuer_maske() {
+            Ok(t) => println!("{t}"),
+            Err(e) => eprintln!("  {e}"),
+        },
+
         "/erinnerungen" => melden(erinnerungen::abgleichen(&[])),
 
         "/dienste" => {
@@ -275,6 +280,7 @@ fn hilfe() {
   \x1b[1mOhne Modell\x1b[0m
     /aufgaben          offene Aufgaben des Projekts
     /auftraege         Aufträge, die für diesen Rechner anliegen
+    /daueraufgaben     eingerichtete Daueraufträge dieses Rechners
     /erinnerungen      Gedächtnis mit AI Brain abgleichen
     /dienste [namen]   Zustand von Diensten (ohne Namen: alle fehlgeschlagenen)
     /rechner           Last, Speicher, Platten, Grafikkarte

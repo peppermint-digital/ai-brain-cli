@@ -40,7 +40,11 @@ struct Antwort {
 /// Nur Datum und Uhrzeit aus dem ISO-Zeitstempel — eine Dauer auszurechnen
 /// hiesse, Zeitzonen und Schaltsekunden selbst zu behandeln, und dafür käme
 /// eine sechste Abhängigkeit ins Haus. Das lohnt für eine Spalte nicht.
-fn seit(iso: Option<&str>) -> String {
+/// Ein ISO-Zeitstempel als `14.10. 12:34`.
+///
+/// Oeffentlich, weil die Dauerauftraege dieselbe Schreibweise brauchen — zwei
+/// Datumsformate in einem Programm sind ein Fehler, den jeder sofort sieht.
+pub fn seit(iso: Option<&str>) -> String {
     let Some(iso) = iso else {
         return "—".to_string();
     };
