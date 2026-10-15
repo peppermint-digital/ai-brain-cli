@@ -930,6 +930,82 @@ ist Kürzen — wächst eine Sitzung über das Fenster, hält der Riegel oben an
 sagt es. Stilles Kürzen ist genau der Fehler, der bei Ollamas Deckel so teuer
 war.
 
+## Verbrauch melden
+
+Claude Code und Codex schreiben in ihre Protokolldateien, wie viele Token und
+wie viel Zeit eine Sitzung gekostet hat. Der Harness liest das, bildet je
+Sitzung eine Summe und meldet den **Endstand** an AI Brain — dort landet er
+neben dem Verbrauch der Channels, in derselben Auswertung.
+
+**Nur Zahlen.** Kein Gesprächsinhalt verlässt den Rechner: gelesen werden
+ausschliesslich `usage`-Objekte, Sitzungskennungen, Arbeitsverzeichnisse und
+Modellnamen.
+
+```bash
+ai-brain-harness verbrauch zeigen      # was gemeldet würde
+ai-brain-harness verbrauch melden      # nachholend alles Offene
+ai-brain-harness verbrauch hook ein    # am Sitzungsende automatisch
+ai-brain-harness verbrauch aus         # auf diesem Rechner abschalten
+```
+
+Zusätze: `--zeigen` (nur anzeigen statt melden), `--grenze <n>` (höchstens n
+Sitzungen je Lauf, Vorgabe 50), `--sitzung <id>` (nur diese eine), `--vom-hook`
+(Kennung aus der Hook-Eingabe auf stdin lesen), `--konto <name>` (nur nötig,
+wenn der Harness es nicht selbst aus `CLAUDE_CONFIG_DIR` sieht), `--still`.
+
+Erfasst wird **standardmässig**, abschaltbar je Rechner (hier) und je Person
+(in AI Brain). Beim ersten Lauf sagt der Harness einmal sichtbar, dass gemessen
+wird und wie man es abstellt.
+
+### Warum der Server die Differenz bildet, nicht der Harness
+
+Eine Meldung trägt den Endstand einer Sitzung, nicht den Zuwachs eines Laufs —
+der Harness liest ja eine Datei und kennt nur Summen. Würde der Server
+addieren, zählte jede Nachmeldung die ganze Sitzung erneut, und nachgemeldet
+wird dauernd. Also differenziert **der Server** gegen den letzten Stand
+derselben Sitzung. Zweimal dasselbe melden ändert damit keine Summe.
+
+Dass der Harness die Differenz nicht selbst bildet, ist Absicht: zwei Zähler
+laufen irgendwann auseinander, und nur der Server sieht alle Rechner.
+
+### Drei Dinge, die gemessen wurden und den Entwurf geändert haben
+
+**Die Konten teilen sich ein Verzeichnis.** Unter
+`~/.local/state/imkr/accounts/claude/<konto>/` sind fast alle Einträge Symlinks
+auf `~/.claude` — `projects/` eingeschlossen. Ein Lauf „über alle
+Konfigurationen" läse jede Datei mehrfach; deshalb werden die Verzeichnisse
+über ihren aufgelösten Pfad entdoppelt. Aus demselben Grund steht in einem
+Transcript **kein Konto**: es ist aus der Datei nicht ableitbar.
+
+Nur der `SessionEnd`-Hook läuft innerhalb des Gesprächs und kennt
+`CLAUDE_CONFIG_DIR` — er ist damit die einzige Quelle für das Konto.
+Nachgeholte Sitzungen bleiben ohne, sichtbar leer statt geraten.
+
+**Codex nennt seinen Verbrauch anders.** `turn.completed` gibt es nicht (0 von
+20 Dateien); der Satz heisst `token_usage_record`. Und dort enthält
+`input_tokens` die gecachten **mit** — anders als bei Claude. Ohne das
+Herausrechnen zählte der Cache doppelt.
+
+**Die Transcripts nennen keine Kosten**, weder bei Claude noch bei Codex. Über
+eine vollständige Sitzung mit 4280 `usage`-Objekten geprüft: kein `costUSD`,
+kein `total_cost_usd`. In `stats-cache.json` gibt es ein `costUSD`, das steht
+auf einem Abo aber für jedes Modell auf `0` — und eine 0 läse sich als „hat
+nichts gekostet" statt als „unbekannt".
+
+Dafür kommt die **Zeit**: Claude schreibt die Zugdauer in eigene Sätze
+(`subtype=turn_duration`), in einer Sitzung 104 Stück mit zusammen 10,1
+Stunden. Auf einem Abo ist das ohnehin die aussagekräftigere Zahl.
+
+### Der Hook steht neben den anderen
+
+`verbrauch hook ein` hängt sich an `SessionEnd` **zusätzlich** ein; vorhandene
+Einträge bleiben stehen (auf dieser Maschine etwa imkrs Zustandsmeldung). Vor
+dem Schreiben wird die Datei gesichert. Entfernt wird nur der eigene Eintrag,
+erkannt an seiner Marke — nicht an seiner Position.
+
+Eingerichtet wird er **ausdrücklich**, nicht still über `sync`: ein Hook läuft
+bei jedem Sitzungsende mit, und so etwas gehört nicht nebenbei installiert.
+
 ## Weitere Befehle
 
 ```bash
