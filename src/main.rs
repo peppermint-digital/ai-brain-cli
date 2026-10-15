@@ -24,6 +24,7 @@
 //! tot. Genau deshalb ist die CLI nicht nur ein Einrichtungsprogramm.
 
 mod agent;
+mod anzeige;
 mod aufgaben;
 mod auftrag;
 mod chat;
@@ -34,6 +35,7 @@ mod erinnerungen;
 mod freigabe;
 mod imkr;
 mod frage;
+mod konto;
 mod maske;
 mod mcp;
 mod nachricht;

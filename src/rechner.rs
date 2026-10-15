@@ -319,8 +319,19 @@ pub fn fuer_maske(name: &str, args: &serde_json::Value) -> Result<String, String
 /// Gefunden beim ersten echten Lauf am 15.10.2026. Eine Umgebungsvariable zu
 /// setzen waere die schlechtere Loesung gewesen: dann saehe der Weg aus wie ein
 /// Gespraech mit mehr Rechten, obwohl er etwas anderes ist.
-pub fn fuer_dauerauftrag(befehl: &str, frist: u64) -> Result<String, String> {
-    befehl_fahren(&serde_json::json!({ "befehl": befehl, "frist": frist }))
+pub fn fuer_dauerauftrag(befehl: &str, frist: u64, verzeichnis: &str) -> Result<String, String> {
+    befehl_fahren(&serde_json::json!({
+        "befehl": befehl,
+        "frist": frist,
+        // **Das Verzeichnis kommt vom Aufrufer, nicht aus der Umgebung.** Ein
+        // Taktgeber-Lauf hat keine Sitzung, die ein sinnvolles
+        // Arbeitsverzeichnis mitbringt — und ein Befehl, der sich auf
+        // relative Pfade verlaesst, trifft sonst je nach Startweg etwas
+        // anderes. Ausserdem ist `HOME` prozessweit: in den Tests dieses
+        // Programms zeigt es auf erfundene Pfade, und der Lauf scheiterte am
+        // Verzeichnis statt am Befehl.
+        "verzeichnis": verzeichnis,
+    }))
 }
 
 // ─── Die Werkzeuge selbst ────────────────────────────────────────────────────
@@ -803,7 +814,7 @@ mod tests {
         // Dauerauftrags stammt aus seiner Anlage, nicht aus dem Lauf.
         assert_eq!(Hoheit::aus_umgebung(), Hoheit::Lesend, "Vorbedingung");
 
-        let aus = fuer_dauerauftrag("echo dauerauftrag-laeuft", 10).unwrap();
+        let aus = fuer_dauerauftrag("echo dauerauftrag-laeuft", 10, "/tmp").unwrap();
 
         assert!(aus.contains("dauerauftrag-laeuft"), "{aus}");
     }
@@ -813,7 +824,7 @@ mod tests {
         // Ein Rueckgabewert ungleich null ist bei einer Pruefung die NORMALE
         // Art zu sagen „nicht in Ordnung" — das muss als Fehler ankommen und
         // nicht verschluckt werden.
-        let fehler = fuer_dauerauftrag("exit 3", 10).unwrap_err();
+        let fehler = fuer_dauerauftrag("exit 3", 10, "/tmp").unwrap_err();
 
         assert!(fehler.contains("endete mit 3"), "{fehler}");
     }

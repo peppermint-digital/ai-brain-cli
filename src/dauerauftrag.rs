@@ -235,6 +235,14 @@ pub fn fahren(args: &[String]) -> Result<(), String> {
         return Ok(());
     }
 
+    // Das Arbeitsverzeichnis einmal bestimmen, nicht je Auftrag: ein
+    // Taktgeber-Lauf startet in einem beliebigen Verzeichnis, und ein Befehl
+    // mit relativem Pfad traefe sonst je nach Startweg etwas anderes.
+    let arbeitsplatz = std::env::var("HOME")
+        .ok()
+        .filter(|h| std::path::Path::new(h).is_dir())
+        .unwrap_or_else(|| "/".to_string());
+
     let mut gefahren = 0;
     let mut gescheitert = 0;
 
@@ -261,7 +269,8 @@ pub fn fahren(args: &[String]) -> Result<(), String> {
         // Nicht `fuer_maske`: das ist das Rechtegitter des GESPRAECHS. Die
         // Vollmacht eines Dauerauftrags stammt aus seiner Anlage — siehe
         // `rechner::fuer_dauerauftrag`.
-        let ergebnis = crate::rechner::fuer_dauerauftrag(&auftrag.inhalt, FRIST_SEKUNDEN);
+        let ergebnis =
+            crate::rechner::fuer_dauerauftrag(&auftrag.inhalt, FRIST_SEKUNDEN, &arbeitsplatz);
 
         let (status, text) = match ergebnis {
             Ok(aus) => ("ok", aus),

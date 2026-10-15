@@ -135,7 +135,7 @@ fn skills_gezaehlt() -> usize {
 /// Der Steckbrief braucht keine Anmeldung und ist eine kurze Anfrage. Scheitert
 /// sie — kein Netz, Instanz aus —, gilt der gemerkte Name: Dass der Name alt
 /// ist, darf das Gespraech nicht aufhalten.
-fn instanzname(connection: &Connection) -> String {
+pub fn instanzname(connection: &Connection) -> String {
     let url = format!("{}/.well-known/ai-brain", connection.base_url.trim_end_matches('/'));
 
     ureq::get(&url)

@@ -33,19 +33,44 @@
 //! weitere per `--resume` wieder aufgreift. Faellt die Maske aus, ist das
 //! Gespraech nicht verloren — die Kennung steht im Register.
 
+use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
 use crate::agent::Rechte;
+use crate::anzeige::{self, Anzeige};
 use crate::config::{self, Connection};
-use crate::{aufgaben, auftrag, chat, erinnerungen, freigabe, register};
+use crate::{aufgaben, auftrag, chat, erinnerungen, freigabe, konto, register};
 
 /// Was die Maske aus einem Zug des Motors herausliest.
 struct Zug {
     sitzung: Option<String>,
     kosten: Option<f64>,
     abgebrochen: bool,
+    /// Der Name des Werkzeugs, dessen Argumente gerade stroemen.
+    offenes_werkzeug: Option<String>,
+    /// Die Argumente, Stueck fuer Stueck, wie sie ankommen.
+    offene_argumente: String,
+    /// Wie viele Werkzeuge in diesem Zug gegriffen wurden.
+    griffe: usize,
+    /// Der letzte Griff, wie er gedruckt wurde — damit sich pruefen laesst,
+    /// was auf dem Bildschirm stand, und nicht nur, dass gedruckt wurde.
+    letzter_griff: Option<(String, String)>,
+}
+
+impl Zug {
+    fn neu() -> Self {
+        Self {
+            sitzung: None,
+            kosten: None,
+            abgebrochen: false,
+            offenes_werkzeug: None,
+            offene_argumente: String::new(),
+            griffe: 0,
+            letzter_griff: None,
+        }
+    }
 }
 
 /// `brain` — die Maske.
@@ -104,7 +129,18 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         pane: std::env::var("IMKR_PANE").ok().filter(|p| !p.is_empty()),
     })?;
 
-    schirm(&connection, projekt.as_deref(), &verzeichnis, rechte, &lauf.id);
+    // Die Umgebung des gewaehlten Kontos. Leer heisst: das, was die Sitzung
+    // ohnehin mitbringt. Steht VOR dem Schirm, weil der sie anzeigt.
+    let mut umgebung: BTreeMap<String, String> = BTreeMap::new();
+
+    schirm(
+        &connection,
+        projekt.as_deref(),
+        &verzeichnis,
+        rechte,
+        &lauf.id,
+        &umgebung,
+    );
 
     // Das Gedaechtnis gleicht sich beim Aufgehen ab, nicht auf Zuruf. Ein
     // Abgleich, den man anstossen muss, laeuft irgendwann nicht mehr — und
@@ -137,7 +173,14 @@ pub fn starten(args: &[String]) -> Result<(), String> {
         }
 
         if text.starts_with('/') {
-            match befehl(text, &mut rechte, &mut sitzung, &verzeichnis, projekt.as_deref()) {
+            match befehl(
+                text,
+                &mut rechte,
+                &mut sitzung,
+                &mut umgebung,
+                &verzeichnis,
+                projekt.as_deref(),
+            ) {
                 Weiter::Ja => continue,
                 Weiter::Schluss => break,
             }
@@ -145,7 +188,7 @@ pub fn starten(args: &[String]) -> Result<(), String> {
 
         let _ = register::herzschlag(&lauf.id);
 
-        match zug_fahren(text, &verzeichnis, rechte, sitzung.as_deref()) {
+        match zug_fahren(text, &verzeichnis, rechte, sitzung.as_deref(), &umgebung) {
             Ok(zug) => {
                 if let Some(neu) = zug.sitzung {
                     sitzung = Some(neu);
@@ -182,6 +225,7 @@ fn befehl(
     zeile: &str,
     rechte: &mut Rechte,
     sitzung: &mut Option<String>,
+    umgebung: &mut BTreeMap<String, String>,
     verzeichnis: &Path,
     projekt: Option<&str>,
 ) -> Weiter {
@@ -239,6 +283,39 @@ fn befehl(
             }
         }
 
+        "/konto" => match rest {
+            "" => {
+                println!("  Jetzt:  {}", konto::aktuelles(umgebung));
+                println!("  Modell: {}", konto::modell(umgebung));
+
+                match konto::liste() {
+                    Some(liste) => {
+                        println!();
+                        for z in liste.lines() {
+                            println!("  {z}");
+                        }
+                        println!();
+                        println!("  Wechseln:  /konto claude:department");
+                    }
+                    None => {
+                        println!();
+                        println!("  imkr ist hier nicht erreichbar — ohne es gibt es genau");
+                        println!("  dieses eine Konto, und Wechseln faellt aus.");
+                    }
+                }
+            }
+            name => match konto::wechseln(name) {
+                Ok(neu) => {
+                    umgebung.extend(neu);
+                    // Das Gespraech gehoert dem Konto, mit dem es begann.
+                    // Ein Wechsel beginnt deshalb ein neues.
+                    *sitzung = None;
+                    println!("  Konto: {}  \x1b[2m(neues Gespräch)\x1b[0m", konto::aktuelles(umgebung));
+                }
+                Err(e) => eprintln!("  {e}"),
+            },
+        },
+
         "/rechte" => match rest {
             "" => println!("  {}", rechte_lesbar(*rechte)),
             "steuernd" => {
@@ -288,6 +365,7 @@ fn hilfe() {
   \x1b[1mGespräch\x1b[0m
     /neu               Verlauf fallen lassen und neu anfangen
     /rechte [stufe]    lesend | steuernd
+    /konto [name]      welches Konto arbeitet — ohne Name: Liste
     /ende              Schluss (oder Ctrl-D)"
     );
 }
@@ -306,12 +384,20 @@ fn zug_fahren(
     verzeichnis: &Path,
     rechte: Rechte,
     sitzung: Option<&str>,
+    umgebung: &BTreeMap<String, String>,
 ) -> Result<Zug, String> {
     let eigen = eigener_pfad()?;
 
     let mut befehl = Command::new("claude");
     befehl.current_dir(verzeichnis);
     befehl.args(motor_args(&eigen, rechte, sitzung));
+
+    // Das gewaehlte Konto. Wirkt ab DIESEM Zug — ein Wechsel mitten im
+    // Gespraech gilt nicht rueckwirkend, der Verlauf gehoert dem Konto, mit
+    // dem er begonnen hat.
+    for (k, v) in umgebung {
+        befehl.env(k, v);
+    }
 
     // Die Rechte gehen ueber die Umgebung an den Werkzeugserver — ein Modell
     // kann sie dort nicht anfassen. Siehe `rechner::Hoheit`.
@@ -351,13 +437,14 @@ fn zug_fahren(
         return Err("Der Motor liefert keine Ausgabe.".to_string());
     };
 
-    let mut zug = Zug {
-        sitzung: None,
-        kosten: None,
-        abgebrochen: false,
-    };
+    let mut zug = Zug::neu();
 
-    let mut im_text = false;
+    // Der malende Faden. Er ist der einzige Weg zu einer Zahl, die sich
+    // bewegt, waehrend ein Werkzeug arbeitet und vom Motor nichts kommt.
+    let anzeige = Anzeige::neu();
+    let maler = Anzeige::takten(&anzeige);
+
+    anzeige.taetigkeit(Some("denkt".to_string()));
 
     for zeile in BufReader::new(aus).lines() {
         let Ok(zeile) = zeile else { break };
@@ -366,16 +453,16 @@ fn zug_fahren(
             continue;
         };
 
-        darstellen(&e, &mut zug, &mut im_text);
+        darstellen(&e, &mut zug, &anzeige);
     }
 
     let status = kind
         .wait()
         .map_err(|e| format!("Der Zug laesst sich nicht beobachten: {e}"))?;
 
-    if im_text {
-        println!();
-    }
+    anzeige.beenden();
+    let _ = maler.join();
+    anzeige.absatz();
 
     if !status.success() && zug.sitzung.is_none() && zug.kosten.is_none() {
         let mut meldung = String::new();
@@ -403,42 +490,122 @@ fn zug_fahren(
 ///
 /// Die Formen stammen aus einer Messung an `claude -p --output-format
 /// stream-json --include-partial-messages`, nicht aus der Dokumentation.
-fn darstellen(e: &serde_json::Value, zug: &mut Zug, im_text: &mut bool) {
+///
+/// **Der Werkzeugname kommt aus dem BLOCKANFANG, nicht aus der fertigen
+/// Nachricht.** Das ist der Unterschied zwischen „ich sehe, was er tut" und
+/// „ich sehe hinterher, was er getan hat": `content_block_start` nennt das
+/// Werkzeug, bevor es laeuft, und `input_json_delta` liefert die Argumente
+/// dazu. Die fertige Nachricht kommt erst, wenn der Griff schon vorbei ist.
+fn darstellen(e: &serde_json::Value, zug: &mut Zug, anzeige: &Anzeige) {
     let art = e.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
     match art {
-        "system" => {
-            if e.get("subtype").and_then(|s| s.as_str()) == Some("init") {
+        "system" => match e.get("subtype").and_then(|s| s.as_str()) {
+            Some("init") => {
                 if let Some(id) = e.get("session_id").and_then(|s| s.as_str()) {
                     zug.sitzung = Some(id.to_string());
                 }
             }
-        }
+            // Der Motor denkt. Ohne diese Zeile sieht die Wartezeit vor dem
+            // ersten Zeichen aus wie ein Haenger.
+            Some("status") => {
+                if e.get("status").and_then(|s| s.as_str()) == Some("requesting") {
+                    anzeige.taetigkeit(Some("denkt".to_string()));
+                }
+            }
+            // Ein abgelehnter Werkzeuggriff gehoert gesagt, nicht verschluckt:
+            // sonst steht am Ende „ich konnte es nicht" ohne Grund.
+            Some("permission_denied") => {
+                let werkzeug = e
+                    .get("tool_name")
+                    .and_then(|t| t.as_str())
+                    .unwrap_or("ein Werkzeug");
+
+                anzeige.zeile(&format!(
+                    "  \x1b[33m⊘ {} abgelehnt\x1b[0m \x1b[2m(die Rechte dieses Laufs)\x1b[0m",
+                    anzeige::werkzeugname(werkzeug)
+                ));
+            }
+            _ => {}
+        },
 
         "stream_event" => {
             let ereignis = e.get("event").unwrap_or(&serde_json::Value::Null);
+            let typ = ereignis.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
-            if ereignis.get("type").and_then(|t| t.as_str()) == Some("content_block_delta") {
-                if let Some(stueck) = ereignis
-                    .get("delta")
-                    .and_then(|d| d.get("text"))
-                    .and_then(|t| t.as_str())
-                {
-                    if !*im_text {
-                        println!();
-                        *im_text = true;
+            match typ {
+                "content_block_start" => {
+                    let block = ereignis.get("content_block").unwrap_or(&serde_json::Value::Null);
+
+                    if block.get("type").and_then(|t| t.as_str()) == Some("tool_use") {
+                        let name = anzeige::werkzeugname(
+                            block.get("name").and_then(|n| n.as_str()).unwrap_or("?"),
+                        );
+
+                        zug.offenes_werkzeug = Some(name.clone());
+                        zug.offene_argumente.clear();
+                        anzeige.taetigkeit(Some(format!("{name} …")));
                     }
-
-                    print!("{stueck}");
-                    let _ = std::io::stdout().flush();
                 }
+
+                "content_block_delta" => {
+                    let delta = ereignis.get("delta").unwrap_or(&serde_json::Value::Null);
+
+                    match delta.get("type").and_then(|t| t.as_str()) {
+                        Some("text_delta") => {
+                            if let Some(stueck) = delta.get("text").and_then(|t| t.as_str()) {
+                                anzeige.taetigkeit(None);
+                                anzeige.text(stueck);
+                            }
+                        }
+                        // Die Argumente stroemen als JSON-Bruchstuecke ein.
+                        Some("input_json_delta") => {
+                            if let Some(stueck) = delta.get("partial_json").and_then(|t| t.as_str()) {
+                                zug.offene_argumente.push_str(stueck);
+
+                                if let Some(name) = &zug.offenes_werkzeug {
+                                    let args = anzeige::argumente_kurz(&zug.offene_argumente, 60);
+                                    anzeige.taetigkeit(Some(if args.is_empty() {
+                                        format!("{name} …")
+                                    } else {
+                                        format!("{name}  {args}")
+                                    }));
+                                }
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+
+                // Die Argumente sind vollstaendig: Griff zeigen und ab jetzt
+                // die Laufzeit zaehlen — das ist die Zeit, in der sonst
+                // nichts passiert.
+                "content_block_stop" => {
+                    if let Some(name) = zug.offenes_werkzeug.take() {
+                        let args = anzeige::argumente_kurz(&zug.offene_argumente, 72);
+                        zug.griffe += 1;
+
+                        anzeige.zeile(&format!(
+                            "  \x1b[2m⚒ {name}\x1b[0m{}",
+                            if args.is_empty() {
+                                String::new()
+                            } else {
+                                format!("  \x1b[2m{args}\x1b[0m")
+                            }
+                        ));
+
+                        anzeige.taetigkeit(Some(format!("{name} arbeitet")));
+                        zug.letzter_griff = Some((name, args));
+                        zug.offene_argumente.clear();
+                    }
+                }
+
+                _ => {}
             }
         }
 
-        // Werkzeuggriffe stehen in der fertigen Nachricht, nicht in den
-        // Teilstuecken. Sie gehoeren sichtbar gemacht: wer den Rechner
-        // anfassen laesst, soll sehen, womit.
-        "assistant" => {
+        // Das Ergebnis eines Werkzeugs ist da — ab hier denkt der Motor wieder.
+        "user" => {
             let leer = Vec::new();
             let bloecke = e
                 .get("message")
@@ -446,19 +613,11 @@ fn darstellen(e: &serde_json::Value, zug: &mut Zug, im_text: &mut bool) {
                 .and_then(|c| c.as_array())
                 .unwrap_or(&leer);
 
-            for block in bloecke {
-                if block.get("type").and_then(|t| t.as_str()) != Some("tool_use") {
-                    continue;
-                }
-
-                let name = block.get("name").and_then(|n| n.as_str()).unwrap_or("?");
-
-                if *im_text {
-                    println!();
-                    *im_text = false;
-                }
-
-                println!("  \x1b[2m⚒ {}\x1b[0m", name.trim_start_matches("mcp__"));
+            if bloecke
+                .iter()
+                .any(|b| b.get("type").and_then(|t| t.as_str()) == Some("tool_result"))
+            {
+                anzeige.taetigkeit(Some("denkt".to_string()));
             }
         }
 
@@ -554,34 +713,75 @@ fn abgleich_beim_start(projekt: Option<&str>) {
     }
 }
 
+/// Der Schirm beim Aufgehen.
+///
+/// **Der Motor gehoert hierher.** Bastian: „es waere gut, wenn ich dann oben
+/// direkt sehe, auf was das laeuft." Vorher stand hier, WELCHE Werkzeuge
+/// bereitstehen, aber nicht, welches Modell und welches Konto arbeitet — und
+/// das ist die Frage, die man sich bei jedem Zug stellt.
 fn schirm(
     connection: &Connection,
     projekt: Option<&str>,
     verzeichnis: &Path,
     rechte: Rechte,
     lauf: &str,
+    umgebung: &BTreeMap<String, String>,
 ) {
-    let breite = 64;
+    // Der Name der Instanz frisch statt gemerkt: auf diesem Rechner stand in
+    // der Ablage noch „Laravel", waehrend die Instanz laengst „AI Brain" heisst.
+    let instanz = chat::instanzname(connection);
+    let rechner = gethostname::gethostname().to_string_lossy().to_string();
+    let heimat = std::env::var("HOME").unwrap_or_default();
+    let ort = verzeichnis.display().to_string();
+    let ort = match ort.strip_prefix(&heimat) {
+        Some(rest) if !heimat.is_empty() => format!("~{rest}"),
+        _ => ort,
+    };
+
+    let feld = |name: &str, wert: &str| println!("  \x1b[2m{name:<10}\x1b[0m {wert}");
 
     println!();
-    println!("  \x1b[1mAI Brain Harness\x1b[0m · {}", connection.base_url);
-    println!("  {}", "─".repeat(breite));
     println!(
-        "  Angemeldet {} · {}",
-        connection.owner,
-        gethostname::gethostname().to_string_lossy()
+        "  \x1b[1;36m▰\x1b[0m \x1b[1mAI Brain Harness\x1b[0m \x1b[2m·\x1b[0m {instanz}"
+    );
+    println!("  \x1b[2m{}\x1b[0m", "─".repeat(66));
+
+    feld(
+        "Wer",
+        &format!(
+            "{} \x1b[2mauf\x1b[0m {rechner}  \x1b[2m·  Konto\x1b[0m {}",
+            connection.owner,
+            konto::aktuelles(umgebung)
+        ),
     );
 
-    match projekt {
-        Some(p) => println!("  Projekt    {p}  ·  {}", verzeichnis.display()),
-        None => println!("  Projekt    —  ·  {}", verzeichnis.display()),
-    }
+    let motorzeile = match konto::anbieter(umgebung) {
+        Some(a) => format!("claude \x1b[2m·\x1b[0m {}  \x1b[2m·\x1b[0m {a}", konto::modell(umgebung)),
+        None => format!("claude \x1b[2m·\x1b[0m {}", konto::modell(umgebung)),
+    };
 
-    println!("  Werkzeuge  AI Brain  ·  dieser Rechner");
-    println!("  Rechte     {}", rechte_lesbar(rechte));
-    println!("  Lauf       {lauf}");
-    println!("  {}", "─".repeat(breite));
-    println!("  \x1b[2m/hilfe zeigt, was ohne Modell geht. Ctrl-D beendet.\x1b[0m");
+    feld("Motor", &motorzeile);
+
+    feld(
+        "Hier",
+        &match projekt {
+            Some(p) => format!("{p} \x1b[2m·\x1b[0m {ort}"),
+            None => format!("\x1b[2mkein Projekt ·\x1b[0m {ort}"),
+        },
+    );
+
+    feld(
+        "Greift auf",
+        &format!(
+            "{instanz} \x1b[2m·\x1b[0m diesen Rechner  \x1b[2m·\x1b[0m {}",
+            rechte_lesbar(rechte)
+        ),
+    );
+
+    println!("  \x1b[2m{}\x1b[0m", "─".repeat(66));
+    println!(
+        "  \x1b[2mLauf {lauf}  ·  /hilfe für Befehle ohne Modell  ·  Ctrl-D beendet\x1b[0m"
+    );
 }
 
 #[cfg(test)]
@@ -653,17 +853,13 @@ mod tests {
 
     #[test]
     fn die_sitzungskennung_wird_aus_dem_anfang_gelesen() {
-        let mut zug = Zug {
-            sitzung: None,
-            kosten: None,
-            abgebrochen: false,
-        };
-        let mut im_text = false;
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
 
         darstellen(
             &serde_json::json!({ "type": "system", "subtype": "init", "session_id": "s-1" }),
             &mut zug,
-            &mut im_text,
+            &anzeige,
         );
 
         assert_eq!(zug.sitzung.as_deref(), Some("s-1"));
@@ -671,12 +867,8 @@ mod tests {
 
     #[test]
     fn ein_abgebrochener_zug_wird_nicht_als_erfolg_gezaehlt() {
-        let mut zug = Zug {
-            sitzung: None,
-            kosten: None,
-            abgebrochen: false,
-        };
-        let mut im_text = false;
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
 
         darstellen(
             &serde_json::json!({
@@ -686,7 +878,7 @@ mod tests {
                 "total_cost_usd": 0.5,
             }),
             &mut zug,
-            &mut im_text,
+            &anzeige,
         );
 
         assert!(zug.abgebrochen);
@@ -694,13 +886,115 @@ mod tests {
     }
 
     #[test]
+    fn der_werkzeugname_kommt_aus_dem_blockanfang() {
+        // Das ist der Unterschied zwischen „ich sehe, was er tut" und „ich
+        // sehe hinterher, was er getan hat": der Blockanfang nennt das
+        // Werkzeug, BEVOR es laeuft.
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
+
+        darstellen(
+            &serde_json::json!({
+                "type": "stream_event",
+                "event": {
+                    "type": "content_block_start",
+                    "content_block": { "type": "tool_use", "name": "mcp__rechner__rechner-dienste" }
+                }
+            }),
+            &mut zug,
+            &anzeige,
+        );
+
+        // Weder das Praefix `mcp__` noch der Servername sagen dem Menschen
+        // etwas Neues — der Server steht im Schirm.
+        assert_eq!(zug.offenes_werkzeug.as_deref(), Some("rechner-dienste"));
+    }
+
+    #[test]
+    fn die_argumente_werden_aus_bruchstuecken_zusammengesetzt() {
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
+
+        for stueck in ["{\"befehl\": \"systemctl", " is-active rev", "erb\"}"] {
+            darstellen(
+                &serde_json::json!({
+                    "type": "stream_event",
+                    "event": {
+                        "type": "content_block_delta",
+                        "delta": { "type": "input_json_delta", "partial_json": stueck }
+                    }
+                }),
+                &mut zug,
+                &anzeige,
+            );
+        }
+
+        assert_eq!(zug.offene_argumente, "{\"befehl\": \"systemctl is-active reverb\"}");
+    }
+
+    #[test]
+    fn die_echte_ereignisfolge_eines_bash_griffs_zeigt_den_befehl() {
+        // Die Folge ist am 15.10.2026 an `claude -p` gemessen. Der erste
+        // Echttest druckte „⚒ Bash" OHNE Argumente, und ohne diesen Test
+        // liess sich nicht unterscheiden, ob die Bruchstuecke nicht ankommen
+        // oder die Darstellung sie verliert.
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
+
+        let folge = vec![
+            serde_json::json!({"type":"stream_event","event":{
+                "type":"content_block_start",
+                "content_block":{"type":"tool_use","id":"t1","name":"Bash","input":{}}}}),
+            serde_json::json!({"type":"stream_event","event":{
+                "type":"content_block_delta",
+                "delta":{"type":"input_json_delta","partial_json":""}}}),
+            serde_json::json!({"type":"stream_event","event":{
+                "type":"content_block_delta",
+                "delta":{"type":"input_json_delta","partial_json":"{\"command\": \"sleep 8 && echo FER"}}}),
+            serde_json::json!({"type":"stream_event","event":{
+                "type":"content_block_delta",
+                "delta":{"type":"input_json_delta","partial_json":"TIG\", \"description\": \"Warten\"}"}}}),
+            serde_json::json!({"type":"stream_event","event":{"type":"content_block_stop"}}),
+        ];
+
+        for e in &folge {
+            darstellen(e, &mut zug, &anzeige);
+        }
+
+        let (name, args) = zug.letzter_griff.clone().expect("ein Griff muss gezaehlt sein");
+
+        assert_eq!(name, "Bash");
+        assert_eq!(args, "sleep 8 && echo FERTIG", "der Befehl gehoert in die Zeile");
+        assert_eq!(zug.griffe, 1);
+    }
+
+    #[test]
+    fn der_blockschluss_zaehlt_den_griff_und_raeumt_auf() {
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
+
+        zug.offenes_werkzeug = Some("rechner-befehl".into());
+        zug.offene_argumente = "{\"befehl\":\"true\"}".into();
+
+        darstellen(
+            &serde_json::json!({
+                "type": "stream_event",
+                "event": { "type": "content_block_stop" }
+            }),
+            &mut zug,
+            &anzeige,
+        );
+
+        assert_eq!(zug.griffe, 1);
+        // Aufgeraeumt, sonst traegt der naechste Griff die alten Argumente.
+        assert!(zug.offenes_werkzeug.is_none());
+        assert!(zug.offene_argumente.is_empty());
+    }
+
+    #[test]
     fn ein_erfolgreicher_zug_gilt_als_erfolg() {
-        let mut zug = Zug {
-            sitzung: None,
-            kosten: None,
-            abgebrochen: false,
-        };
-        let mut im_text = false;
+        let mut zug = Zug::neu();
+        let anzeige = Anzeige::neu();
 
         darstellen(
             &serde_json::json!({
@@ -710,7 +1004,7 @@ mod tests {
                 "total_cost_usd": 0.25,
             }),
             &mut zug,
-            &mut im_text,
+            &anzeige,
         );
 
         assert!(!zug.abgebrochen);
