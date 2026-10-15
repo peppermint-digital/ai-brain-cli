@@ -47,6 +47,7 @@ mod schleife;
 mod register;
 mod taktgeber;
 mod select;
+mod sitzung;
 mod sync;
 
 use std::process::ExitCode;

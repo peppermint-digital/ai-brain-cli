@@ -255,6 +255,7 @@ pub fn fahren(
     katalog: &Katalog,
     frage: &str,
     laut: bool,
+    verlauf: &mut Vec<Nachricht>,
 ) -> Result<Ergebnis, String> {
     if wer.werkzeuge == Werkzeugfaehig::Nein && !katalog.werkzeuge.is_empty() {
         return Err(format!(
@@ -265,12 +266,14 @@ pub fn fahren(
     }
 
     if let Some(fenster) = wer.kontext {
-        let geschaetzt = anbieter::marken_schaetzen(&anbieter::nutzlast(
-            wer,
-            &[Nachricht::Nutzer(frage.to_string())],
-            &katalog.werkzeuge,
-            AUFTRAG,
-        ));
+        let mit_frage: Vec<Nachricht> = verlauf
+            .iter()
+            .cloned()
+            .chain(std::iter::once(Nachricht::Nutzer(frage.to_string())))
+            .collect();
+
+        let geschaetzt =
+            anbieter::marken_schaetzen(&anbieter::nutzlast(wer, &mit_frage, &katalog.werkzeuge, AUFTRAG));
 
         if geschaetzt > fenster {
             let (brain, rechner) = katalog.anzahl();
@@ -289,12 +292,13 @@ pub fn fahren(
         }
     }
 
-    let mut verlauf = vec![Nachricht::Nutzer(frage.to_string())];
+    verlauf.push(Nachricht::Nutzer(frage.to_string()));
+
     let mut marken = (0_u64, 0_u64);
     let mut griffe_gesamt = 0_usize;
 
     for nr in 1..=ZUEGE_GRENZE {
-        let mut antwort = zug(wer, &verlauf, &katalog.werkzeuge, AUFTRAG)?;
+        let mut antwort = zug(wer, verlauf, &katalog.werkzeuge, AUFTRAG)?;
 
         if let Some((ein, aus)) = antwort.marken {
             marken.0 += ein;
@@ -325,6 +329,13 @@ pub fn fahren(
         if antwort.griffe.is_empty() {
             let text = antwort.text.unwrap_or_else(|| {
                 "Der Anbieter hat weder Text noch einen Werkzeuggriff geliefert.".to_string()
+            });
+
+            // Die Schlussantwort gehoert in den Verlauf — sonst fehlt sie beim
+            // Fortsetzen, und das Modell widerspricht sich selbst.
+            verlauf.push(Nachricht::Modell {
+                text: Some(text.clone()),
+                griffe: Vec::new(),
             });
 
             return Ok(Ergebnis {
@@ -570,6 +581,9 @@ Zusaetze:
   --ohne-werkzeuge                 Reines Gespraech, nichts angeboten
   --ohne-ai-brain                  Nur Rechnerwerkzeuge anbieten
   --still                          Keine Zwischenmeldungen
+  --fortsetzen <kennung>           Eine gespeicherte Sitzung weiterfuehren
+
+  schleife --sitzungen             Gespeicherte Sitzungen zeigen
 ";
 
 fn wert<'a>(args: &'a [String], flagge: &str) -> Option<&'a str> {
@@ -587,6 +601,10 @@ pub fn verwalten(args: &[String]) -> Result<(), String> {
 
     if args.iter().any(|a| a == "--liste") {
         return liste_zeigen();
+    }
+
+    if args.iter().any(|a| a == "--sitzungen") {
+        return sitzungen_zeigen();
     }
 
     if args.iter().any(|a| a == "--eintragen") {
@@ -808,7 +826,7 @@ fn lauf(args: &[String]) -> Result<(), String> {
             // Der Wert hinter einer Flagge ist kein Teil der Frage.
             !args
                 .get(i.wrapping_sub(1))
-                .is_some_and(|v| matches!(v.as_str(), "--anbieter" | "--rechte"))
+                .is_some_and(|v| matches!(v.as_str(), "--anbieter" | "--rechte" | "--fortsetzen"))
         })
         .map(|(_, a)| a.as_str())
         .collect();
@@ -858,7 +876,31 @@ fn lauf(args: &[String]) -> Result<(), String> {
         );
     }
 
-    let ergebnis = fahren(gewaehlt, &katalog, &frage, laut)?;
+    let mut sitzung = match wert(args, "--fortsetzen") {
+        Some(kennung) => {
+            let geladen = crate::sitzung::laden(kennung)?;
+
+            if laut {
+                eprintln!(
+                    "⟡ Sitzung {} fortgesetzt — {} Fragen bisher",
+                    geladen.kennung,
+                    geladen.zuege()
+                );
+            }
+
+            geladen
+        }
+        None => crate::sitzung::Sitzung::neu(&gewaehlt.name),
+    };
+
+    let ergebnis = fahren(gewaehlt, &katalog, &frage, laut, &mut sitzung.verlauf);
+
+    // Die Sitzung wird **auch bei einem Fehler** gesichert. Ein Lauf, der am
+    // dritten Griff scheitert, hat zwei brauchbare Ergebnisse gesammelt; die
+    // wegzuwerfen heisst, den naechsten Versuch bei null anfangen zu lassen.
+    let gesichert = crate::sitzung::sichern(&sitzung);
+
+    let ergebnis = ergebnis?;
 
     println!("{}", ergebnis.text);
 
@@ -868,6 +910,38 @@ fn lauf(args: &[String]) -> Result<(), String> {
             "⟡ {} Zuege, {} Griffe, {} ein / {} aus",
             ergebnis.zuege, ergebnis.griffe, ergebnis.marken.0, ergebnis.marken.1
         );
+
+        match gesichert {
+            Ok(_) => eprintln!(
+                "⟡ Fortsetzen mit: ai-brain-harness schleife --fortsetzen {} \"…\"",
+                sitzung.kennung
+            ),
+            Err(grund) => eprintln!("⟡ Sitzung NICHT gesichert: {grund}"),
+        }
+    }
+
+    Ok(())
+}
+
+fn sitzungen_zeigen() -> Result<(), String> {
+    let alle = crate::sitzung::alle()?;
+
+    if alle.is_empty() {
+        println!("Keine Sitzungen.");
+        return Ok(());
+    }
+
+    println!("Sitzungen, die neueste zuerst:");
+    println!();
+
+    for s in alle.iter().take(20) {
+        println!("  {}  {} · {} Fragen", s.kennung, s.anbieter, s.zuege());
+        println!("      {}", s.titel());
+    }
+
+    if alle.len() > 20 {
+        println!();
+        println!("… und {} weitere (nicht gezeigt).", alle.len() - 20);
     }
 
     Ok(())

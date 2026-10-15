@@ -45,7 +45,7 @@ lassen sich die Systeme vergleichen, die dasselbe Problem verschieden lösen:
 | **Pi** | eigen, bewusst minimal (Systemprompt und Werkzeugdefinitionen unter 1000 Token) | 8 eingebaute, 4 standardmässig an: `read`, `write`, `edit`, `bash`; dazu `grep`, `find`, `ls` | selbst besorgen | als Erweiterung nachrüstbar (Rechtegitter, Pfadschutz, Sandbox) | ja |
 | **OpenClaw** | Pi als Kern, darüber ein Plugin-Ökosystem | je Integration ein Plugin mit Manifest — Channels, Modellanbieter, Speicher, Skills | je Plugin | je Plugin | ja |
 | **Hermes** | eigen | eigene, mitgebracht (Terminal, Datei, Gedächtnis, Cronjob, TTS, Vision …) | eigene Ablage unter `~/.hermes` | keine | ja, aber `computer_use` nur unter macOS |
-| **AI Brain Harness** | **gemietet** (noch) | **AI Brains MCP-Werkzeuge *und* die dieses Rechners** | **AI Brains Register** | **AI Brains Nutzerrechte** | ja, voller Rechner |
+| **AI Brain Harness** | **eigen *und* gemietet** — eigener Loop für OpenAI-kompatible und Anthropic, `claude`/`codex` weiter nutzbar | **AI Brains MCP-Werkzeuge *und* die dieses Rechners** | **AI Brains Register** | **AI Brains Nutzerrechte** | ja, voller Rechner |
 
 ### Der Unterschied in einem Satz
 
@@ -811,6 +811,124 @@ verstummt, nicht erst ab der ersten Meldung.
 Und deshalb überwacht der Taktgeber sich **nicht** selbst — das wäre derselbe
 Zirkel. Bleibt er stehen, kommen keine Meldungen, und die Gegenstelle schlägt
 Alarm.
+
+## Der eigene Loop
+
+Bis Oktober 2026 mietete der Harness fremde Schleifen: `claude` und `codex`. Das
+hiess, er konnte nur, was die können — und wer ihn benutzen wollte, musste erst
+die Befehlszeile eines Wettbewerbers installieren. Für OpenRouter, Ollama und
+alles OpenAI-kompatible gab es überhaupt keinen Weg.
+
+Jetzt gibt es einen eigenen. Er ist **kein Ersatz** für `claude`: Kompaktierung,
+Unteragenten, Hooks und der Plan-Modus bleiben dort, und `--durchreichen` bleibt
+der Weg dahin. Der eigene Loop ist der Weg zu allem anderen.
+
+### Zwei Formen, nicht eine pro Anbieter
+
+| Form | Weg | Deckt ab |
+|---|---|---|
+| `openai` | `/v1/chat/completions` | OpenRouter, Ollama, vLLM, Groq, LM Studio … |
+| `anthropic` | `/v1/messages` | Anthropic mit API-Schlüssel |
+
+```bash
+ai-brain-harness schleife --eintragen ollama --form openai \
+  --basis http://127.0.0.1:11434/v1 --modell llama3.1:8b
+
+ai-brain-harness schleife --eintragen openrouter --form openai \
+  --basis https://openrouter.ai/api/v1 --modell qwen/qwen3-235b-a22b \
+  --schluessel-variable OPENROUTER_API_KEY
+```
+
+Der Schlüssel selbst steht **nicht** in der Ablage, nur der Name der
+Umgebungsvariable, aus der er kommt.
+
+### Erst messen, dann laufen lassen
+
+```bash
+ai-brain-harness schleife --messen            # alle Anbieter
+ai-brain-harness schleife --liste             # was eingetragen ist
+```
+
+Die Messung ist kein Beiwerk, sondern der Kern. Drei Dinge lassen sich **nicht**
+aus Dokumentation ableiten, und jedes hat hier eine Stunde gekostet:
+
+**Werkzeugfähigkeit gehört zum Modell, nicht zum Anbieter.** Auf demselben
+Ollama greift `llama3.1:8b` Werkzeuge und `qwen2.5:14b` zunächst nicht. Deshalb
+ist die Angabe dreiwertig: `ja`, `nein`, **ungemessen** — und ein neuer Eintrag
+ist ungemessen, nicht fähig.
+
+**Eine Stichprobe von eins ist keine Messung.** Der erste Befund zu
+`qwen2.5:14b` lautete „kann nicht". Bei drei Proben kamen zwei richtige Griffe
+und einer als Text. Das Modell kann es, nur unzuverlässig — und das ist der
+Unterschied zwischen „anderes Modell nehmen" und „Adapter härten". Darum nimmt
+jede Messung mehrere Proben und nennt die Rate.
+
+**Das Kontextfenster des Servers ist nicht das des Modells.** `llama3.1:8b`
+kann 131072 Marken. Ollama wertet trotzdem nur 4096 aus, wenn
+`OLLAMA_CONTEXT_LENGTH` nicht gesetzt ist — und *meldet das nicht*. Über den
+OpenAI-kompatiblen Weg lässt sich das pro Anfrage auch nicht heben; geprüft sind
+`options.num_ctx` und ein Feld auf oberster Ebene, beide ohne Wirkung.
+
+Im Betrieb sah das wie Modelldummheit aus: mit 188 angebotenen Werkzeugen griff
+das Modell etwas völlig Unverwandtes und reichte eine *Fehlermeldung* als
+Argumente durch. Es hatte den Katalog nur zur Hälfte gesehen. Deshalb misst
+`--messen` auch, wo der Server abschneidet, und der Loop hält davor an:
+
+```
+Fehler: Der Werkzeugkatalog passt nicht in das gemessene Kontextfenster von
+'ollama': rund 42018 Marken bei 4096 Platz (183 Werkzeuge aus AI Brain, 5 von
+diesem Rechner).
+
+Der Server wuerde den Rest stillschweigend abschneiden — das Modell saehe einen
+halben Katalog und griffe ins Leere.
+```
+
+### Laufen
+
+```bash
+ai-brain-harness schleife "Wie lange laeuft dieser Rechner?"
+ai-brain-harness schleife --ohne-ai-brain "…"     # nur Rechnerwerkzeuge
+ai-brain-harness schleife --rechte steuernd "…"   # darf auch anfassen
+ai-brain-harness schleife --anbieter openrouter "…"
+ai-brain-harness schleife --ohne-werkzeuge "…"   # reines Gespraech
+ai-brain-harness schleife --still "…"            # nur die Antwort, keine Zwischenmeldungen
+```
+
+Welcher Anbieter ohne `--anbieter` genommen wird, legt `--standard` fest:
+
+```bash
+ai-brain-harness schleife --standard openrouter
+```
+
+Die Werkzeuge kommen aus beiden Quellen: AI Brain über `tools/list`, dieser
+Rechner im selben Prozess. Die Rechte bleiben, wo sie waren — derselbe Riegel
+wie bei der Maske entscheidet, ob ein Lauf etwas ändern darf.
+
+Zwei Härtungen arbeiten unsichtbar mit:
+
+- **Erfundene Argumente werden verworfen.** `llama3.1:8b` schickte
+  `{"Laufzeit":"true"}` für ein Werkzeug mit *leerem* Schema. Durchgereicht
+  trifft so etwas serverseitige Prüfungen, und die Meldung sieht aus, als hätte
+  der Harness Unsinn gebaut. Verworfenes wird genannt, nicht geschluckt.
+- **Griffe im Textfeld werden eingesammelt.** Ollama klammert Werkzeuggriffe in
+  Marken und liest sie zurück; stolpert das Modell beim öffnenden Teil, landet
+  der fertige Griff unzerlegt im Text — erkennbar an einem durchgesickerten
+  `</tool_call>`. Das Modell hat seine Arbeit getan, die Form ist auf dem Weg
+  kaputtgegangen. Eingesammelt wird nur, was auf ein **angebotenes** Werkzeug
+  zeigt; sonst löste ein Modell, das über JSON spricht, echte Griffe aus.
+
+### Sitzungen
+
+```bash
+ai-brain-harness schleife --sitzungen
+ai-brain-harness schleife --fortsetzen 1792079880 "Und die Platte?"
+```
+
+Gespeichert wird **auch bei einem Fehler**: ein Lauf, der am dritten Griff
+scheitert, hat zwei brauchbare Ergebnisse gesammelt. Was hier *nicht* passiert,
+ist Kürzen — wächst eine Sitzung über das Fenster, hält der Riegel oben an und
+sagt es. Stilles Kürzen ist genau der Fehler, der bei Ollamas Deckel so teuer
+war.
 
 ## Weitere Befehle
 
