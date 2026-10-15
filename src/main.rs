@@ -21,6 +21,7 @@
 mod agent;
 mod aufgaben;
 mod auftrag;
+mod chat;
 mod config;
 mod discovery;
 mod freigabe;
@@ -46,6 +47,7 @@ Aufrufe:
   ai-brain-cli select             Waehlen, welche Eintraege dieser Rechner bekommt
   ai-brain-cli sync               Skills und Agents aus dem Repository abgleichen
   ai-brain-cli publish <name>     Einen lokalen Eintrag ins Repository geben
+  ai-brain-cli chat [...]         Ein Gespraech hier fuehren (kurz: `brain`)
   ai-brain-cli agent [...]        Einen Agentenlauf hier starten
   ai-brain-cli agents             Welche Agentenlaeufe hier laufen
   ai-brain-cli aufgaben [...]     Offene Aufgaben eines Projekts (--projekt, --json)
@@ -163,6 +165,7 @@ fn main() -> ExitCode {
         Some("publish") => sync::publish(&args[1..]),
         Some("agent") => agent::starten(&args[1..]),
         Some("freigabe") => freigabe::verwalten(&args[1..]),
+        Some("chat") => chat::starten(&args[1..]),
         Some("agents") => register::anzeigen(&args[1..]),
         Some("aufgaben") => aufgaben::anzeigen(&args[1..]),
         Some("auftraege") => auftrag::anzeigen(&args[1..]),

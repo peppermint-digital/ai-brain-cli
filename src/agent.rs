@@ -94,14 +94,14 @@ pub enum Rechte {
     Vollzugriff,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Modell {
     Claude,
     Codex,
 }
 
 impl Modell {
-    fn aus(wort: &str) -> Result<Self, String> {
+    pub fn aus(wort: &str) -> Result<Self, String> {
         match wort {
             "claude" => Ok(Modell::Claude),
             "codex" => Ok(Modell::Codex),
@@ -116,7 +116,7 @@ impl Modell {
         }
     }
 
-    fn programm(&self) -> &'static str {
+    pub fn programm(&self) -> &'static str {
         match self {
             Modell::Claude => "claude",
             Modell::Codex => "codex",
@@ -131,6 +131,34 @@ impl Modell {
     }
 
     /// Die Rechte-Schalter, abgelesen an `--help` der Werkzeuge.
+    /// Die Befehlszeile fuer ein GESPRAECH — wie `befehl_interaktiv`, nur ohne
+    /// Auftragstext (#502).
+    ///
+    /// Der Unterschied ist nur der fehlende Text: Ohne ihn startet das Werkzeug
+    /// in seinen Gespraechsmodus statt eine Aufgabe abzuarbeiten. Deshalb steht
+    /// das hier und nicht in `chat.rs` — die Regeln, welcher Schalter welche
+    /// Rechte bedeutet, gibt es genau einmal.
+    pub fn gespraech_args(&self, rechte: Rechte, weiter: bool) -> Result<Vec<String>, String> {
+        let mut args = Vec::new();
+
+        match (self, weiter) {
+            (Modell::Claude, true) => args.push("-c".to_string()),
+            // `codex resume --last` ist ein eigener Unterbefehl und muss VOR
+            // den Schaltern stehen.
+            (Modell::Codex, true) => {
+                args.push("resume".to_string());
+                args.push("--last".to_string());
+            }
+            _ => {}
+        }
+
+        // `in_resume` gilt nur fuer `codex exec resume`; das interaktive
+        // `codex resume` kennt die Schalter weiterhin.
+        args.extend(self.rechte_args(rechte, false)?);
+
+        Ok(args)
+    }
+
     fn rechte_args(&self, rechte: Rechte, in_resume: bool) -> Result<Vec<String>, String> {
         Ok(match (self, rechte) {
             (_, Rechte::Fragend) => Vec::new(),
