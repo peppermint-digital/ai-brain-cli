@@ -58,6 +58,82 @@ pub fn liste() -> Option<String> {
     Some(text)
 }
 
+/// Die Modellkonten, die AI Brain führt.
+///
+/// **Zweite Quelle, nicht Ersatz.** Wer imkr benutzt, hat seine Konten dort;
+/// wer nicht, hat sie in AI Brain. Beides kommt vor, und eine Maske, die nur
+/// eine Quelle kennt, lässt auf dem jeweils anderen Rechner nichts anbieten.
+/// Bastians Einwand dazu war genau dieser Fall.
+///
+/// Scheitert die Abfrage, ist das kein Fehler der Maske — dann gibt es eben
+/// keine Instanz-Konten zu zeigen. Gesagt wird es trotzdem.
+pub fn aus_ai_brain() -> Result<Vec<InstanzKonto>, String> {
+    let connection = crate::config::load()?;
+    let token = crate::mcp::access_token(&connection)?;
+
+    let roh = crate::mcp::call_tool(
+        &connection,
+        &token,
+        "list-model-accounts-tool",
+        serde_json::json!({ "json": true }),
+    )?;
+
+    let antwort: InstanzAntwort = serde_json::from_value(roh)
+        .map_err(|e| format!("Antwort auf list-model-accounts-tool ist unlesbar: {e}"))?;
+
+    Ok(antwort.konten)
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstanzAntwort {
+    #[serde(default)]
+    konten: Vec<InstanzKonto>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub struct InstanzKonto {
+    pub art: String,
+    pub label: String,
+    #[serde(default)]
+    pub aktiv: bool,
+    #[serde(default)]
+    pub zustand: Option<String>,
+    #[serde(default)]
+    pub letzter_fehler: Option<String>,
+    #[serde(default)]
+    pub token_endet_auf: Option<String>,
+}
+
+impl InstanzKonto {
+    /// Eine Zeile für die Maske.
+    pub fn zeile(&self) -> String {
+        let mut z = format!("  {:<28} {}", self.label, self.art);
+
+        if !self.aktiv {
+            z.push_str("  abgeschaltet");
+        } else if let Some(zustand) = &self.zustand {
+            z.push_str(&format!("  {zustand}"));
+        }
+
+        // Die letzten vier Zeichen des Tokens. Der einzige Grund: zwei Konten
+        // mit aehnlichem Namen unterscheiden. Mehr gibt das Werkzeug nicht
+        // heraus, und mehr braucht die Zeile nicht.
+        if let Some(ende) = &self.token_endet_auf {
+            if !ende.is_empty() {
+                z.push_str(&format!("  {ende}"));
+            }
+        }
+
+        if let Some(fehler) = &self.letzter_fehler {
+            if !fehler.is_empty() {
+                z.push_str(&format!("  ({fehler})"));
+            }
+        }
+
+        z
+    }
+}
+
 /// Auf ein Konto wechseln: die Umgebung dafür von imkr holen.
 ///
 /// Gibt die Variablen zurück, die der Motor im nächsten Zug braucht. Der
@@ -160,6 +236,72 @@ pub fn anbieter(umgebung: &BTreeMap<String, String>) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn instanz(json: serde_json::Value) -> Vec<InstanzKonto> {
+        serde_json::from_value::<InstanzAntwort>(json).unwrap().konten
+    }
+
+    #[test]
+    fn eine_leere_antwort_ist_kein_fehler() {
+        // Ohne `#[serde(default)]` scheiterte das Zerlegen, und „keine
+        // Konten" saehe aus wie „nicht abfragbar".
+        assert!(instanz(serde_json::json!({})).is_empty());
+    }
+
+    #[test]
+    fn ein_instanzkonto_wird_vollstaendig_gelesen() {
+        let k = instanz(serde_json::json!({
+            "konten": [{
+                "art": "claude",
+                "label": "Stelljes",
+                "aktiv": true,
+                "zustand": "ok",
+                "letzter_fehler": null,
+                "token_endet_auf": "…9876"
+            }]
+        }));
+
+        assert_eq!(k.len(), 1);
+        assert_eq!(k[0].label, "Stelljes");
+        assert_eq!(k[0].art, "claude");
+        assert!(k[0].aktiv);
+
+        let z = k[0].zeile();
+        assert!(z.contains("Stelljes"), "{z}");
+        assert!(z.contains("claude"), "{z}");
+        assert!(z.contains("ok"), "{z}");
+        // Die letzten vier Zeichen unterscheiden zwei aehnliche Konten.
+        assert!(z.contains("9876"), "{z}");
+    }
+
+    #[test]
+    fn ein_abgeschaltetes_konto_sieht_nicht_ruhig_aus() {
+        let k = instanz(serde_json::json!({
+            "konten": [{ "art": "claude", "label": "Alt", "aktiv": false, "zustand": "ok" }]
+        }));
+
+        let z = k[0].zeile();
+
+        assert!(z.contains("abgeschaltet"), "{z}");
+        // Der Zustand „ok" darf daneben nicht stehen — abgeschaltet und ok
+        // zugleich liest sich wie „laeuft".
+        assert!(!z.contains("ok"), "{z}");
+    }
+
+    #[test]
+    fn ein_letzter_fehler_steht_in_der_zeile() {
+        // Ein totes Konto muss auffallen, sonst waehlt man es aus.
+        let k = instanz(serde_json::json!({
+            "konten": [{
+                "art": "claude", "label": "Abgelaufen", "aktiv": true,
+                "zustand": "fehler", "letzter_fehler": "401 Unauthorized"
+            }]
+        }));
+
+        let z = k[0].zeile();
+
+        assert!(z.contains("401 Unauthorized"), "{z}");
+    }
 
     fn leer() -> BTreeMap<String, String> {
         BTreeMap::new()

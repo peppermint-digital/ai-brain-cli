@@ -288,20 +288,54 @@ fn befehl(
                 println!("  Jetzt:  {}", konto::aktuelles(umgebung));
                 println!("  Modell: {}", konto::modell(umgebung));
 
+                // **Zwei Quellen, beide gekennzeichnet.** Wer imkr benutzt,
+                // hat seine Konten dort; wer nicht, hat sie in AI Brain.
+                // Beides kommt vor, und eine Maske, die nur eine Quelle
+                // kennt, laesst auf dem jeweils anderen Rechner nichts
+                // anbieten.
+                let mut etwas_gefunden = false;
+
                 match konto::liste() {
                     Some(liste) => {
+                        etwas_gefunden = true;
                         println!();
+                        println!("  \x1b[2mAuf diesem Rechner (imkr)\x1b[0m");
                         for z in liste.lines() {
                             println!("  {z}");
                         }
-                        println!();
-                        println!("  Wechseln:  /konto claude:department");
                     }
                     None => {
                         println!();
-                        println!("  imkr ist hier nicht erreichbar — ohne es gibt es genau");
-                        println!("  dieses eine Konto, und Wechseln faellt aus.");
+                        println!("  \x1b[2mAuf diesem Rechner: kein imkr\x1b[0m");
                     }
+                }
+
+                match konto::aus_ai_brain() {
+                    Ok(konten) if !konten.is_empty() => {
+                        etwas_gefunden = true;
+                        println!();
+                        println!("  \x1b[2mIn AI Brain\x1b[0m");
+                        for k in &konten {
+                            println!("{}", k.zeile());
+                        }
+                    }
+                    Ok(_) => {
+                        println!();
+                        println!("  \x1b[2mIn AI Brain: kein Modellkonto angelegt\x1b[0m");
+                    }
+                    // Ein Fehler hier darf die imkr-Liste nicht verschlucken.
+                    Err(e) => {
+                        println!();
+                        println!("  \x1b[2mIn AI Brain: nicht abfragbar — {e}\x1b[0m");
+                    }
+                }
+
+                println!();
+
+                if etwas_gefunden {
+                    println!("  Wechseln:  /konto <name>   \x1b[2m(imkr-Konten, z. B. claude:department)\x1b[0m");
+                } else {
+                    println!("  Kein Konto zur Auswahl. Der Lauf nutzt, was der Rechner mitbringt.");
                 }
             }
             name => match konto::wechseln(name) {
