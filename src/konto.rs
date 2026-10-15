@@ -33,6 +33,9 @@ pub fn aktuelles(umgebung: &BTreeMap<String, String>) -> String {
 
     match teile.as_slice() {
         [name, werkzeug] if pfad.contains("/accounts/") => format!("{werkzeug}:{name}"),
+        // `.claude` ist der Standardordner, kein Kontoname. „Konto .claude"
+        // liest sich wie ein Versehen.
+        [name, ..] if *name == ".claude" => "Standard".to_string(),
         [name, ..] => (*name).to_string(),
         _ => pfad,
     }
@@ -127,6 +130,114 @@ pub fn anmeldehinweis(umgebung: &BTreeMap<String, String>) -> String {
         "/dienste, /rechner, /erinnerungen. Es fehlt nur das Gespräch.".to_string(),
     ]
     .join("\n")
+}
+
+/// Woher das Konto dieses Laufs kommt.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Quelle {
+    /// Ein Ordner je Konto, von imkr verwaltet.
+    Imkr,
+    /// Die Anmeldung des Rechners selbst (`claude login`).
+    Rechner,
+    /// Ein Token aus AI Brain — die Stufe, die immer existiert.
+    AiBrain,
+    /// Keine der drei. Dann geht kein Gespräch.
+    Keine,
+}
+
+impl Quelle {
+    pub fn lesbar(self) -> &'static str {
+        match self {
+            Quelle::Imkr => "imkr",
+            Quelle::Rechner => "dieser Rechner",
+            Quelle::AiBrain => "AI Brain",
+            Quelle::Keine => "keine Anmeldung",
+        }
+    }
+}
+
+/// Die Rückfallkette: imkr → dieser Rechner → AI Brain (#7860).
+///
+/// **Die Reihenfolge geht vom Spezifischen zum Allgemeinen.** Wer imkr
+/// benutzt, hat dort absichtlich mehrere Konten eingerichtet — das ist die
+/// genaueste Angabe und gewinnt. Danach die Anmeldung des Rechners, die bei
+/// den meisten ohnehin da ist. Erst zuletzt AI Brain, und das ist die Stufe,
+/// die immer existiert: ohne sie wäre der Harness nutzlos.
+///
+/// **AI Brain wird nur gefragt, wenn es nötig ist.** Ein Token holen heisst,
+/// eine Vollmacht über das Netz zu bewegen und einen Eintrag im
+/// Prüfprotokoll zu erzeugen. Wer schon angemeldet ist, braucht das nicht —
+/// und soll es nicht bei jedem Start tun.
+///
+/// Gibt die Quelle zurück und ergänzt `umgebung`, falls ein Token geholt wurde.
+pub fn kette(umgebung: &mut BTreeMap<String, String>) -> (Quelle, Option<String>) {
+    // Stufe 1: imkr. Erkannt daran, dass `CLAUDE_CONFIG_DIR` in dessen
+    // Kontenablage zeigt — ein beliebiger eigener Pfad ist kein imkr.
+    let aus_imkr = umgebung
+        .get("CLAUDE_CONFIG_DIR")
+        .cloned()
+        .or_else(|| std::env::var("CLAUDE_CONFIG_DIR").ok())
+        .map(|p| p.contains("/accounts/"))
+        .unwrap_or(false);
+
+    if aus_imkr && angemeldet(umgebung) {
+        return (Quelle::Imkr, None);
+    }
+
+    // Stufe 2: der Rechner selbst.
+    if angemeldet(umgebung) {
+        return (Quelle::Rechner, None);
+    }
+
+    // Stufe 3: AI Brain.
+    match token_aus_ai_brain(None) {
+        Ok((label, variable, token)) => {
+            umgebung.insert(variable, token);
+
+            (Quelle::AiBrain, Some(label))
+        }
+        Err(grund) => (Quelle::Keine, Some(grund)),
+    }
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct TokenAntwort {
+    label: String,
+    variable: String,
+    token: String,
+}
+
+/// Ein Token aus AI Brain holen.
+///
+/// Gibt (Bezeichnung, Variablenname, Token) zurück. Der Variablenname kommt
+/// von der Instanz, nicht aus einer Vermutung hier: `sk-ant-oat01-` gehört in
+/// `CLAUDE_CODE_OAUTH_TOKEN`, `sk-ant-api03-` in `ANTHROPIC_API_KEY`, und die
+/// Unterscheidung steht dort schon einmal.
+pub fn token_aus_ai_brain(label: Option<&str>) -> Result<(String, String, String), String> {
+    let connection = crate::config::load()?;
+    let zugang = crate::mcp::access_token(&connection)?;
+
+    let mut args = serde_json::Map::new();
+
+    if let Some(l) = label {
+        args.insert("label".into(), serde_json::Value::String(l.to_string()));
+    }
+
+    let roh = crate::mcp::call_tool(
+        &connection,
+        &zugang,
+        "get-model-account-token-tool",
+        serde_json::Value::Object(args),
+    )?;
+
+    let antwort: TokenAntwort = serde_json::from_value(roh)
+        .map_err(|e| format!("Antwort auf get-model-account-token-tool ist unlesbar: {e}"))?;
+
+    if antwort.token.trim().is_empty() {
+        return Err(format!("AI Brain liefert für '{}' ein leeres Token.", antwort.label));
+    }
+
+    Ok((antwort.label, antwort.variable, antwort.token))
 }
 
 /// Die Modellkonten, die AI Brain führt.
@@ -385,6 +496,94 @@ mod tests {
             .collect()
     }
 
+    /// Ein Ordner, der wie ein angemeldeter imkr-Kontoordner aussieht.
+    fn imkr_ordner(name: &str, angemeldet: bool) -> std::path::PathBuf {
+        let d = std::env::temp_dir()
+            .join(format!("harness-kette-{}-{name}", std::process::id()))
+            .join("accounts")
+            .join("claude")
+            .join(name);
+        std::fs::create_dir_all(&d).unwrap();
+
+        if angemeldet {
+            std::fs::write(d.join(".credentials.json"), "{}").unwrap();
+        }
+
+        d
+    }
+
+    #[test]
+    fn stufe_eins_gewinnt_wenn_imkr_angemeldet_ist() {
+        // Wer imkr benutzt, hat dort absichtlich mehrere Konten eingerichtet.
+        // Das ist die genaueste Angabe und darf nicht von der Rechner-
+        // Anmeldung ueberstimmt werden.
+        let d = imkr_ordner("henneberg", true);
+        let mut u = mit(&[("CLAUDE_CONFIG_DIR", &d.display().to_string())]);
+
+        let (quelle, hinweis) = kette(&mut u);
+
+        assert_eq!(quelle, Quelle::Imkr);
+        assert!(hinweis.is_none(), "Stufe 1 holt nichts");
+        // Und sie fasst die Umgebung nicht an.
+        assert_eq!(u.len(), 1);
+
+        let _ = std::fs::remove_dir_all(d.parent().unwrap().parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn ein_eigener_pfad_ist_kein_imkr() {
+        // `CLAUDE_CONFIG_DIR` kann irgendwohin zeigen. Nur ein Pfad in imkrs
+        // Kontenablage ist imkr — sonst behauptet der Schirm eine Herkunft,
+        // die nicht stimmt.
+        let d = std::env::temp_dir().join(format!("harness-eigen-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(".credentials.json"), "{}").unwrap();
+
+        let mut u = mit(&[("CLAUDE_CONFIG_DIR", &d.display().to_string())]);
+
+        assert_eq!(kette(&mut u).0, Quelle::Rechner);
+
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn stufe_zwei_greift_bei_einer_anmeldung_des_rechners() {
+        let d = std::env::temp_dir().join(format!("harness-rechner-{}", std::process::id()));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::write(d.join(".credentials.json"), "{}").unwrap();
+
+        let mut u = mit(&[("CLAUDE_CONFIG_DIR", &d.display().to_string())]);
+
+        let (quelle, hinweis) = kette(&mut u);
+
+        assert_eq!(quelle, Quelle::Rechner);
+        assert!(hinweis.is_none(), "Stufe 2 holt nichts");
+
+        let _ = std::fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn imkr_ohne_anmeldung_faellt_weiter_durch() {
+        // Ein imkr-Ordner OHNE `.credentials.json` ist ein angelegtes, aber
+        // nicht angemeldetes Konto. Stufe 1 darf dann nicht gewinnen, sonst
+        // steht „imkr" im Schirm und das Gespraech scheitert trotzdem.
+        let d = imkr_ordner("leer", false);
+        let mut u = mit(&[("CLAUDE_CONFIG_DIR", &d.display().to_string())]);
+
+        // Ohne erreichbare Instanz endet die Kette bei Keine — entscheidend
+        // ist, dass sie NICHT bei Imkr stehenbleibt.
+        assert_ne!(kette(&mut u).0, Quelle::Imkr);
+
+        let _ = std::fs::remove_dir_all(d.parent().unwrap().parent().unwrap().parent().unwrap());
+    }
+
+    #[test]
+    fn jede_quelle_hat_einen_lesbaren_namen() {
+        for q in [Quelle::Imkr, Quelle::Rechner, Quelle::AiBrain, Quelle::Keine] {
+            assert!(!q.lesbar().is_empty(), "{q:?}");
+        }
+    }
+
     #[test]
     fn ein_token_in_der_umgebung_gilt_als_angemeldet() {
         // Wer `ANTHROPIC_API_KEY` gesetzt hat, ist angemeldet — nur anders als
@@ -462,6 +661,14 @@ mod tests {
         )]);
 
         assert_eq!(aktuelles(&u), "claude:henneberg");
+    }
+
+    #[test]
+    fn der_standardordner_heisst_standard_und_nicht_punkt_claude() {
+        // „Konto .claude" liest sich wie ein Versehen.
+        let u = mit(&[("CLAUDE_CONFIG_DIR", "/home/x/.claude")]);
+
+        assert_eq!(aktuelles(&u), "Standard");
     }
 
     #[test]

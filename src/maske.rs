@@ -133,14 +133,41 @@ pub fn starten(args: &[String]) -> Result<(), String> {
     // ohnehin mitbringt. Steht VOR dem Schirm, weil der sie anzeigt.
     let mut umgebung: BTreeMap<String, String> = BTreeMap::new();
 
+    // Die Rueckfallkette: imkr → dieser Rechner → AI Brain. AI Brain wird nur
+    // gefragt, wenn die ersten zwei nichts hergeben — ein Token zu holen
+    // bewegt eine Vollmacht ueber das Netz und hinterlaesst einen Eintrag im
+    // Pruefprotokoll. Wer angemeldet ist, braucht das nicht.
+    let (quelle, kettenhinweis) = konto::kette(&mut umgebung);
+
     schirm(
         &connection,
         projekt.as_deref(),
         &verzeichnis,
         rechte,
         &lauf.id,
-        &umgebung,
+        Kontolage {
+            umgebung: &umgebung,
+            quelle,
+            label: if quelle == konto::Quelle::AiBrain {
+                kettenhinweis.as_deref()
+            } else {
+                None
+            },
+        },
     );
+
+    // Ein geholtes Token gehoert gesagt: es verbraucht das Kontingent eines
+    // gemeinsamen Kontos, nicht das eigene.
+    if quelle == konto::Quelle::AiBrain {
+        if let Some(label) = &kettenhinweis {
+            println!(
+                "  \x1b[2mKein lokales Konto gefunden — Token von AI Brain geholt ({label}).\x1b[0m"
+            );
+            println!(
+                "  \x1b[2mDauerhaft eigenes Konto:  claude login\x1b[0m"
+            );
+        }
+    }
 
     // Das Gedaechtnis gleicht sich beim Aufgehen ab, nicht auf Zuruf. Ein
     // Abgleich, den man anstossen muss, laeuft irgendwann nicht mehr — und
@@ -766,6 +793,29 @@ fn abgleich_beim_start(projekt: Option<&str>) {
     }
 }
 
+/// Welches Konto arbeitet, woher es kommt, und wie es heisst.
+///
+/// Die drei gehoeren zusammen: die Umgebung traegt das Token, die Quelle sagt,
+/// welche Stufe der Kette gegriffen hat, und die Bezeichnung ist nur bei
+/// Stufe 3 noetig (dort steht in `CLAUDE_CONFIG_DIR` ein leerer Ordner, und
+/// dessen Name ist nicht das Konto). Einzeln durchgereicht waren es acht
+/// Parameter fuer den Schirm — und drei davon beantworten dieselbe Frage.
+struct Kontolage<'a> {
+    umgebung: &'a BTreeMap<String, String>,
+    quelle: konto::Quelle,
+    label: Option<&'a str>,
+}
+
+impl Kontolage<'_> {
+    /// Der Name, der im Schirm steht.
+    fn name(&self) -> String {
+        match (self.quelle, self.label) {
+            (konto::Quelle::AiBrain, Some(label)) => label.to_string(),
+            _ => konto::aktuelles(self.umgebung),
+        }
+    }
+}
+
 /// Der Schirm beim Aufgehen.
 ///
 /// **Der Motor gehoert hierher.** Bastian: „es waere gut, wenn ich dann oben
@@ -778,7 +828,7 @@ fn schirm(
     verzeichnis: &Path,
     rechte: Rechte,
     lauf: &str,
-    umgebung: &BTreeMap<String, String>,
+    lage: Kontolage<'_>,
 ) {
     // Der Name der Instanz frisch statt gemerkt: auf diesem Rechner stand in
     // der Ablage noch „Laravel", waehrend die Instanz laengst „AI Brain" heisst.
@@ -802,20 +852,21 @@ fn schirm(
     feld(
         "Wer",
         &format!(
-            "{} \x1b[2mauf\x1b[0m {rechner}  \x1b[2m·  Konto\x1b[0m {}",
+            "{} \x1b[2mauf\x1b[0m {rechner}  \x1b[2m·  Konto\x1b[0m {} \x1b[2m({})\x1b[0m",
             connection.owner,
-            konto::aktuelles(umgebung)
+            lage.name(),
+            lage.quelle.lesbar()
         ),
     );
 
-    let mut motorzeile = match konto::anbieter(umgebung) {
-        Some(a) => format!("claude \x1b[2m·\x1b[0m {}  \x1b[2m·\x1b[0m {a}", konto::modell(umgebung)),
-        None => format!("claude \x1b[2m·\x1b[0m {}", konto::modell(umgebung)),
+    let mut motorzeile = match konto::anbieter(lage.umgebung) {
+        Some(a) => format!("claude \x1b[2m·\x1b[0m {}  \x1b[2m·\x1b[0m {a}", konto::modell(lage.umgebung)),
+        None => format!("claude \x1b[2m·\x1b[0m {}", konto::modell(lage.umgebung)),
     };
 
     // Eine fehlende Anmeldung gehoert in die Motorzeile, nicht in die erste
     // Fehlermeldung eines Zuges. Wer das hier sieht, probiert nicht erst.
-    if !konto::angemeldet(umgebung) {
+    if !konto::angemeldet(lage.umgebung) {
         motorzeile.push_str("  \x1b[33mnicht angemeldet\x1b[0m");
     }
 
