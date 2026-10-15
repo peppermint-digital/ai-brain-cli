@@ -95,6 +95,32 @@ pub fn vorspann(text: &str) -> (String, String) {
     (art, beschreibung)
 }
 
+/// Was beim letzten Abgleich auf beiden Seiten stand.
+///
+/// **Ohne diesen Stand ist jede Abweichung ein Konflikt.** Der erste Entwurf
+/// verglich nur hier gegen dort: Sobald eine Datei lokal waechst, sieht das
+/// aus wie „beidseitig geaendert", und der Eintrag liesse sich nie wieder
+/// zurueckgeben. Gefunden beim ersten echten Nachtrag an MEMORY.md.
+fn stand_pfad() -> Result<PathBuf, String> {
+    Ok(config::config_dir()?.join("erinnerungen-stand.json"))
+}
+
+fn stand_laden() -> BTreeMap<String, String> {
+    stand_pfad()
+        .ok()
+        .and_then(|p| std::fs::read_to_string(p).ok())
+        .and_then(|s| serde_json::from_str(&s).ok())
+        .unwrap_or_default()
+}
+
+fn stand_schreiben(stand: &BTreeMap<String, String>) {
+    if let Ok(p) = stand_pfad() {
+        if let Ok(text) = serde_json::to_string_pretty(stand) {
+            let _ = std::fs::write(p, text);
+        }
+    }
+}
+
 fn pruefsumme(inhalt: &str) -> String {
     use sha2::{Digest, Sha256};
 
@@ -188,6 +214,17 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
 
     let anwenden = args.iter().any(|a| a == "--apply");
 
+    // Zwei ausdrueckliche Richtungen statt eines mehrdeutigen `--force`: Bei
+    // einem Konflikt muss jemand SAGEN, welche Seite gilt. Ein Schalter, der
+    // „ueberschreiben" heisst, laesst offen, was womit — und genau daraus
+    // entsteht der Verlust, den er verhindern soll.
+    let hier_gewinnt = args.iter().any(|a| a == "--hier-gewinnt");
+    let dort_gewinnt = args.iter().any(|a| a == "--dort-gewinnt");
+
+    if hier_gewinnt && dort_gewinnt {
+        return Err("`--hier-gewinnt` und `--dort-gewinnt` zugleich geht nicht.".to_string());
+    }
+
     let verzeichnis = match wert("--verzeichnis") {
         Some(p) => crate::freigabe::aufloesen(&p)?,
         None => std::env::current_dir().map_err(|e| format!("Arbeitsverzeichnis unlesbar: {e}"))?,
@@ -205,16 +242,32 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
         .map(|e| (e.name.clone(), e))
         .collect();
 
-    let mut neu_hier = Vec::new();
-    let mut neu_dort = Vec::new();
+    let mut neu_hier: Vec<String> = Vec::new();
+    let mut neu_dort: Vec<String> = Vec::new();
     let mut konflikt = Vec::new();
-    let mut gleich = 0usize;
+    let mut gleich: Vec<String> = Vec::new();
 
+    let stand = stand_laden();
+
+    // Drei Seiten, nicht zwei: hier, dort, und was beim letzten Mal galt. Nur
+    // so laesst sich „ich habe geaendert" von „die andere Seite ist aelter"
+    // unterscheiden.
     for (name, inhalt) in &hier {
+        let meine = pruefsumme(inhalt);
+
         match dort.get(name) {
             None => neu_dort.push(name.clone()),
-            Some(d) if d.pruefsumme == pruefsumme(inhalt) => gleich += 1,
-            Some(_) => konflikt.push(name.clone()),
+            Some(d) if d.pruefsumme == meine => gleich.push(name.clone()),
+            Some(d) => match stand.get(name) {
+                // Dort steht noch der Stand von damals, hier nicht mehr:
+                // hier wurde geaendert.
+                Some(alt) if *alt == d.pruefsumme => neu_dort.push(name.clone()),
+                // Hier steht der Stand von damals, dort nicht mehr:
+                // dort wurde geaendert.
+                Some(alt) if *alt == meine => neu_hier.push(name.clone()),
+                // Beide weichen vom letzten Stand ab — oder es gibt keinen.
+                _ => konflikt.push(name.clone()),
+            },
         }
     }
 
@@ -233,7 +286,7 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
     println!("  hier, noch nicht dort : {}", neu_dort.len());
     println!("  dort, noch nicht hier : {}", neu_hier.len());
     println!("  beidseitig geändert   : {}", konflikt.len());
-    println!("  gleich                : {gleich}");
+    println!("  gleich                : {}", gleich.len());
 
     if !neu_hier.is_empty() {
         println!();
@@ -249,10 +302,22 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
 
     if !konflikt.is_empty() {
         println!();
-        println!("Beidseitig geändert — wird nicht angefasst:");
+
+        if hier_gewinnt {
+            println!("Beidseitig geändert — diese Seite gilt, geht nach AI Brain:");
+        } else if dort_gewinnt {
+            println!("Beidseitig geändert — AI Brain gilt, wird hier überschrieben:");
+        } else {
+            println!("Beidseitig geändert — wird nicht angefasst:");
+        }
 
         for n in &konflikt {
             println!("  - {n}");
+        }
+
+        if !hier_gewinnt && !dort_gewinnt {
+            println!();
+            println!("  Entscheiden mit --hier-gewinnt oder --dort-gewinnt.");
         }
     }
 
@@ -264,6 +329,23 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
     }
 
     let mut gescheitert: Vec<(String, String)> = Vec::new();
+
+    if dort_gewinnt {
+        // Die hiesige Fassung wird gesichert, bevor sie weicht — dieselbe
+        // Vorsicht wie bei `sync --force`.
+        for n in &konflikt {
+            if let Some(inhalt) = hier.get(n) {
+                let sicherung = pfad.join(format!("{n}.vorher.md"));
+                let _ = std::fs::write(sicherung, inhalt);
+            }
+        }
+
+        neu_hier.extend(konflikt.iter().cloned());
+    }
+
+    if hier_gewinnt {
+        neu_dort.extend(konflikt.iter().cloned());
+    }
 
     std::fs::create_dir_all(&pfad)
         .map_err(|e| format!("{} lässt sich nicht anlegen: {e}", pfad.display()))?;
@@ -295,6 +377,43 @@ pub fn abgleichen(args: &[String]) -> Result<(), String> {
             gescheitert.push((name.clone(), e));
         }
     }
+
+    // Den Stand erst NACH dem Schreiben fortschreiben, und nur fuer das, was
+    // wirklich durchging — sonst merkt sich der Rechner einen Abgleich, den es
+    // nicht gab, und haelt den naechsten Unterschied faelschlich fuer einen
+    // Konflikt.
+    let mut neuer_stand = stand.clone();
+
+    // AUCH das, was schon gleich war. Der erste Entwurf merkte sich nur das
+    // Uebertragene — damit hatte die Mehrheit nie einen Stand, und die naechste
+    // lokale Aenderung sah wieder wie ein Konflikt aus. Gefunden mit einer
+    // Probe: eine Zeile angehaengt, und der Eintrag galt als beidseitig
+    // geaendert, obwohl nur hier etwas passiert war.
+    for name in &gleich {
+        if let Some(inhalt) = hier.get(name) {
+            neuer_stand.insert(name.clone(), pruefsumme(inhalt));
+        }
+    }
+
+    for name in &neu_hier {
+        if let Some(e) = dort.get(name) {
+            neuer_stand.insert(name.clone(), e.pruefsumme.clone());
+        }
+    }
+
+    let fehlgeschlagen: Vec<&String> = gescheitert.iter().map(|(n, _)| n).collect();
+
+    for name in &neu_dort {
+        if fehlgeschlagen.contains(&name) {
+            continue;
+        }
+
+        if let Some(inhalt) = hier.get(name) {
+            neuer_stand.insert(name.clone(), pruefsumme(inhalt));
+        }
+    }
+
+    stand_schreiben(&neuer_stand);
 
     println!();
     println!(
@@ -355,5 +474,63 @@ mod tests {
     #[test]
     fn ohne_vorspann_bleibt_es_leer() {
         assert_eq!(vorspann("# Nur Text\n"), (String::new(), String::new()));
+    }
+}
+
+#[cfg(test)]
+mod dreiseitig {
+    use std::collections::BTreeMap;
+
+    /// Die Entscheidung aus den drei Pruefsummen, ohne Platte und Netz.
+    ///
+    /// Eigene Funktion, damit die Regel pruefbar ist: Der erste Entwurf
+    /// verglich nur hier gegen dort und erklaerte jede lokale Aenderung zum
+    /// Konflikt — der Index liess sich danach nie wieder zurueckgeben.
+    fn entscheidung(hier: &str, dort: Option<&str>, zuletzt: Option<&str>) -> &'static str {
+        match dort {
+            None => "zurueckgeben",
+            Some(d) if d == hier => "gleich",
+            Some(d) => match zuletzt {
+                Some(z) if z == d => "zurueckgeben",
+                Some(z) if z == hier => "holen",
+                _ => "konflikt",
+            },
+        }
+    }
+
+    #[test]
+    fn nur_hier_geaendert_heisst_zurueckgeben() {
+        assert_eq!(entscheidung("neu", Some("alt"), Some("alt")), "zurueckgeben");
+    }
+
+    #[test]
+    fn nur_dort_geaendert_heisst_holen() {
+        assert_eq!(entscheidung("alt", Some("neu"), Some("alt")), "holen");
+    }
+
+    #[test]
+    fn beidseitig_geaendert_bleibt_ein_konflikt() {
+        assert_eq!(entscheidung("meins", Some("deins"), Some("alt")), "konflikt");
+    }
+
+    #[test]
+    fn ohne_gemerkten_stand_lieber_konflikt_als_ueberschreiben() {
+        // Der erste Abgleich auf einem Rechner kennt keinen Stand. Dann ist
+        // Nichtstun richtig — eine falsche Richtung waere hier teuer.
+        assert_eq!(entscheidung("meins", Some("deins"), None), "konflikt");
+    }
+
+    #[test]
+    fn gleich_bleibt_gleich_egal_was_zuletzt_galt() {
+        assert_eq!(entscheidung("x", Some("x"), Some("ganz alt")), "gleich");
+        assert_eq!(entscheidung("x", Some("x"), None), "gleich");
+    }
+
+    #[test]
+    fn was_es_dort_nicht_gibt_geht_hin() {
+        let leer: BTreeMap<String, String> = BTreeMap::new();
+
+        assert!(leer.is_empty());
+        assert_eq!(entscheidung("neu", None, None), "zurueckgeben");
     }
 }
