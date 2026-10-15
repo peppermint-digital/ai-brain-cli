@@ -258,10 +258,10 @@ pub fn fahren(args: &[String]) -> Result<(), String> {
             continue;
         }
 
-        let ergebnis = crate::rechner::fuer_maske(
-            "rechner-befehl",
-            &serde_json::json!({ "befehl": auftrag.inhalt, "frist": FRIST_SEKUNDEN }),
-        );
+        // Nicht `fuer_maske`: das ist das Rechtegitter des GESPRAECHS. Die
+        // Vollmacht eines Dauerauftrags stammt aus seiner Anlage — siehe
+        // `rechner::fuer_dauerauftrag`.
+        let ergebnis = crate::rechner::fuer_dauerauftrag(&auftrag.inhalt, FRIST_SEKUNDEN);
 
         let (status, text) = match ergebnis {
             Ok(aus) => ("ok", aus),

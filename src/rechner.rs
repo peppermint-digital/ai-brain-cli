@@ -302,6 +302,27 @@ pub fn fuer_maske(name: &str, args: &serde_json::Value) -> Result<String, String
     ausfuehren(name, args)
 }
 
+/// Einen Befehl aus einem Dauerauftrag fahren.
+///
+/// **Warum das NICHT durch `fuer_maske` geht.** Das Rechtegitter dort gehoert
+/// zum GESPRAECH: es entscheidet, ob ein Modell in diesem Lauf etwas anfassen
+/// darf. Ein Dauerauftrag hat damit nichts zu tun — seine Vollmacht stammt aus
+/// seiner Anlage: ein namentlicher Mensch hat ihn angelegt, mit Grund, sichtbar
+/// in AI Brain, und ausschliesslich fuer einen Rechner, der ihm gehoert (das
+/// erzwingt `geraetAufloesen` serverseitig). Wer den Befehl ausfuehrt, handelt
+/// nicht aus eigener Entscheidung, sondern fuehrt eine fremde, dokumentierte
+/// Anweisung aus.
+///
+/// Der erste Entwurf lief ueber `fuer_maske`, und der Abholer hat keine
+/// Umgebungsvariable gesetzt — also galt `Lesend`, und jeder Dauerauftrag
+/// meldete „'rechner-befehl' aendert etwas und dieser Lauf ist nur lesend".
+/// Gefunden beim ersten echten Lauf am 15.10.2026. Eine Umgebungsvariable zu
+/// setzen waere die schlechtere Loesung gewesen: dann saehe der Weg aus wie ein
+/// Gespraech mit mehr Rechten, obwohl er etwas anderes ist.
+pub fn fuer_dauerauftrag(befehl: &str, frist: u64) -> Result<String, String> {
+    befehl_fahren(&serde_json::json!({ "befehl": befehl, "frist": frist }))
+}
+
 // ─── Die Werkzeuge selbst ────────────────────────────────────────────────────
 
 /// Name auf Funktion — einmal, damit MCP-Weg und Maske-Weg nicht auseinanderlaufen.
@@ -772,6 +793,29 @@ mod tests {
         let fehler = fahren("sleep", &["5"], None, 1).unwrap_err();
 
         assert!(fehler.contains("laenger als 1s"), "{fehler}");
+    }
+
+    #[test]
+    fn ein_dauerauftrag_faehrt_auch_wenn_das_gespraech_nur_liest() {
+        // Der Fehler vom 15.10.2026: Der Abholer ging durch das
+        // Gespraechs-Gitter, setzte keine Umgebungsvariable, und jeder
+        // Dauerauftrag meldete „nur lesend". Die Vollmacht eines
+        // Dauerauftrags stammt aus seiner Anlage, nicht aus dem Lauf.
+        assert_eq!(Hoheit::aus_umgebung(), Hoheit::Lesend, "Vorbedingung");
+
+        let aus = fuer_dauerauftrag("echo dauerauftrag-laeuft", 10).unwrap();
+
+        assert!(aus.contains("dauerauftrag-laeuft"), "{aus}");
+    }
+
+    #[test]
+    fn ein_dauerauftrag_meldet_den_rueckgabewert_als_fehler() {
+        // Ein Rueckgabewert ungleich null ist bei einer Pruefung die NORMALE
+        // Art zu sagen „nicht in Ordnung" — das muss als Fehler ankommen und
+        // nicht verschluckt werden.
+        let fehler = fuer_dauerauftrag("exit 3", 10).unwrap_err();
+
+        assert!(fehler.contains("endete mit 3"), "{fehler}");
     }
 
     #[test]

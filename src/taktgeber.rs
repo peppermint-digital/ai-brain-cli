@@ -190,15 +190,26 @@ fn zustand() -> Result<(), String> {
         }
     }
 
-    if let Some(letzter) = ausgabe(&[
-        "show", DIENST, "-p", "Result", "-p", "ExecMainStatus", "-p", "ActiveEnterTimestamp",
-        "--value",
-    ]) {
-        let werte: Vec<&str> = letzter.lines().map(str::trim).collect();
+    // **`ExecMainExitTimestamp`, nicht `ActiveEnterTimestamp`.** Bei
+    // `Type=oneshot` ist letzterer nach dem Beenden LEER — die Zeile faellt
+    // dann aus und alle folgenden Werte rutschen eine Stelle nach vorne. Hier
+    // stand deshalb „Letzter Lauf 0, Ergebnis (leer)", obwohl der Lauf fuenf
+    // Sekunden zuvor erfolgreich war. Derselbe Fehler, den die Restic-Pruefung
+    // am selben Tag hatte; siehe Wiki „systemd oneshot:
+    // ActiveEnterTimestamp ist leer, nachdem der Lauf durch ist".
+    //
+    // Einzeln abfragen statt in einer Liste: dann kann keine fehlende Zeile
+    // die Zuordnung verschieben.
+    let feld = |name: &str| -> String {
+        ausgabe(&["show", DIENST, "-p", name, "--value"])
+            .map(|w| w.trim().to_string())
+            .filter(|w| !w.is_empty() && w != "n/a")
+            .unwrap_or_else(|| "—".to_string())
+    };
 
-        println!("  Letzter Lauf   {}", werte.get(2).copied().unwrap_or("—"));
-        println!("  Ergebnis       {}", werte.first().copied().unwrap_or("—"));
-    }
+    println!("  Letzter Lauf   {}", feld("ExecMainExitTimestamp"));
+    println!("  Ergebnis       {}", feld("Result"));
+    println!("  Rückgabewert   {}", feld("ExecMainStatus"));
 
     if lingering() == Some(false) {
         println!();
