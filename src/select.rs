@@ -36,13 +36,101 @@ impl Eintrag {
     fn ist_mcp(&self) -> bool {
         self.typ == TYP_MCP
     }
+
+    /// `typ/slug` — die Form, in der die Auswahl hier geführt wird.
+    fn schluessel(&self) -> String {
+        format!("{}/{}", self.typ, self.slug)
+    }
+}
+
+/// Was ein Rechner gewählt hat, so genau, wie die Instanz es sagt.
+///
+/// Neuere Instanzen liefern `items` mit Typ und Slug. Ältere nur `slugs` —
+/// dann ist ein Name typübergreifend gemeint, und ein Skill `playwright` ist
+/// vom MCP-Server `playwright` nicht zu unterscheiden (#7891). Für diesen Fall
+/// bleibt das alte Verhalten, statt etwas zu erraten.
+pub struct Auswahl {
+    /// `typ/slug`, nur bei `typgenau`.
+    schluessel: BTreeSet<String>,
+    slugs: BTreeSet<String>,
+    typgenau: bool,
+}
+
+impl Auswahl {
+    fn lesen(stand: &serde_json::Value) -> Self {
+        let slugs = stand
+            .get("slugs")
+            .and_then(|s| s.as_array())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str())
+                    .map(str::to_string)
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let Some(items) = stand.get("items").and_then(|i| i.as_array()) else {
+            return Auswahl {
+                schluessel: BTreeSet::new(),
+                slugs,
+                typgenau: false,
+            };
+        };
+
+        let schluessel = items
+            .iter()
+            .filter_map(|i| {
+                let typ = i.get("type")?.as_str()?;
+                let slug = i.get("slug")?.as_str()?;
+                Some(format!("{typ}/{slug}"))
+            })
+            .collect();
+
+        Auswahl {
+            schluessel,
+            slugs,
+            typgenau: true,
+        }
+    }
+
+    /// Nichts gewählt — für Rechner, die noch keinen MCP-Server kennen.
+    pub fn leer() -> Self {
+        Auswahl {
+            schluessel: BTreeSet::new(),
+            slugs: BTreeSet::new(),
+            typgenau: true,
+        }
+    }
+
+    /// Ist genau dieser Eintrag gewählt?
+    pub fn enthaelt(&self, typ: &str, slug: &str) -> bool {
+        if self.typgenau {
+            self.schluessel.contains(&format!("{typ}/{slug}"))
+        } else {
+            self.slugs.contains(slug)
+        }
+    }
+
+    /// Die Auswahl als `typ/slug`, gemessen am Katalog. Ohne Typangabe der
+    /// Instanz zählt ein Slug für jeden Eintrag, der so heißt — wie bisher.
+    fn als_schluessel(&self, katalog: &[Eintrag]) -> BTreeSet<String> {
+        if self.typgenau {
+            return self.schluessel.clone();
+        }
+
+        katalog
+            .iter()
+            .filter(|e| self.slugs.contains(&e.slug))
+            .map(Eintrag::schluessel)
+            .collect()
+    }
 }
 
 /// Was dieser Rechner AUSDRÜCKLICH gewählt hat — unabhängig vom Modus.
 ///
 /// Für `sync`: MCP-Server werden nur eingetragen, wenn sie hier stehen. Der
 /// Modus „alles" zählt dafür nicht.
-pub fn ausdruecklich_gewaehlt(connection: &Connection, token: &str) -> Result<BTreeSet<String>, String> {
+pub fn ausdruecklich_gewaehlt(connection: &Connection, token: &str) -> Result<Auswahl, String> {
     let stand = mcp::call_tool(
         connection,
         token,
@@ -50,40 +138,117 @@ pub fn ausdruecklich_gewaehlt(connection: &Connection, token: &str) -> Result<BT
         serde_json::json!({ "catalogue": false, "device": "" }),
     )?;
 
-    Ok(slugs_lesen(&stand))
+    Ok(Auswahl::lesen(&stand))
 }
 
-fn slugs_lesen(stand: &serde_json::Value) -> BTreeSet<String> {
-    stand
-        .get("slugs")
-        .and_then(|s| s.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+fn ist_mcp_schluessel(schluessel: &str) -> bool {
+    schluessel
+        .split_once('/')
+        .map(|(typ, _)| typ == TYP_MCP)
+        .unwrap_or(false)
 }
 
 /// Die Liste, die gespeichert wird. Im Modus „alles" nur die MCP-Server —
 /// alles andere ist dort ohnehin dabei, die Server aber nie von selbst.
-fn zu_speichern(modus: &str, gewaehlt: &BTreeSet<String>, katalog: &[Eintrag]) -> Vec<String> {
-    if modus != MODUS_ALLES {
-        return gewaehlt.iter().cloned().collect();
+///
+/// Kennt die Instanz Typen (`typgenau`), geht `typ/slug` hinaus, sonst nur
+/// der Slug: Eine ältere Instanz fände `skill/brain` nicht und meldete den
+/// Eintrag als unbekannt.
+fn zu_speichern(modus: &str, gewaehlt: &BTreeSet<String>, typgenau: bool) -> Vec<String> {
+    let behalten = gewaehlt
+        .iter()
+        .filter(|s| modus != MODUS_ALLES || ist_mcp_schluessel(s));
+
+    if typgenau {
+        return behalten.cloned().collect();
     }
 
-    let mcp: BTreeSet<&str> = katalog
-        .iter()
-        .filter(|e| e.ist_mcp())
-        .map(|e| e.slug.as_str())
+    let slugs: BTreeSet<String> = behalten
+        .map(|s| s.split_once('/').map(|(_, slug)| slug).unwrap_or(s).to_string())
         .collect();
 
-    gewaehlt
+    slugs.into_iter().collect()
+}
+
+/// Ein Name aus `--dazu`/`--weg` als `typ/slug`.
+///
+/// `typ/slug` wird genommen, wie es ist, sofern der Katalog den Eintrag
+/// kennt. Ein blanker Slug muss eindeutig sein — sonst hätte ein Tippfehler
+/// oder ein gleichnamiger Skill still den MCP-Server mitgewählt.
+fn aufloesen(name: &str, katalog: &[Eintrag]) -> Result<String, String> {
+    if name.contains('/') {
+        return if katalog.iter().any(|e| e.schluessel() == name) {
+            Ok(name.to_string())
+        } else {
+            Err(format!("{name}: kein solcher Eintrag im Repository"))
+        };
+    }
+
+    let treffer: Vec<String> = katalog
         .iter()
-        .filter(|s| mcp.contains(s.as_str()))
-        .cloned()
-        .collect()
+        .filter(|e| e.slug == name)
+        .map(Eintrag::schluessel)
+        .collect();
+
+    match treffer.len() {
+        0 => Err(format!("{name}: kein solcher Eintrag im Repository")),
+        1 => Ok(treffer[0].clone()),
+        _ => Err(format!(
+            "{name}: mehrdeutig, bitte mit Typ angeben: {}",
+            treffer.join(", ")
+        )),
+    }
+}
+
+/// `--dazu`/`--weg` auf die Auswahl anwenden. Der Modus bleibt, wie er ist.
+///
+/// Gibt zurück, ob sich etwas geändert hat, und je Name eine Zeile dazu.
+fn aendern(
+    modus: &str,
+    gewaehlt: &mut BTreeSet<String>,
+    dazu: &[String],
+    weg: &[String],
+) -> (bool, Vec<String>) {
+    let mut geaendert = false;
+    let mut meldungen = Vec::new();
+
+    for s in dazu {
+        if modus == MODUS_ALLES && !ist_mcp_schluessel(s) {
+            meldungen.push(format!("  {s}: ist im Modus „alles“ ohnehin dabei"));
+        } else if gewaehlt.insert(s.clone()) {
+            geaendert = true;
+            meldungen.push(format!("+ {s}"));
+        } else {
+            meldungen.push(format!("  {s}: war schon gewählt"));
+        }
+    }
+
+    for s in weg {
+        if modus == MODUS_ALLES && !ist_mcp_schluessel(s) {
+            meldungen.push(format!(
+                "  {s}: im Modus „alles“ nicht einzeln abwählbar (dafür select am Terminal)"
+            ));
+        } else if gewaehlt.remove(s) {
+            geaendert = true;
+            meldungen.push(format!("- {s}"));
+        } else {
+            meldungen.push(format!("  {s}: war nicht gewählt"));
+        }
+    }
+
+    (geaendert, meldungen)
+}
+
+fn liste_lesen(args: &[String], i: usize, option: &str) -> Result<Vec<String>, String> {
+    let liste = args
+        .get(i)
+        .ok_or_else(|| format!("{option} braucht eine Liste, z.B. {option} brain,mcp/playwright"))?;
+
+    Ok(liste
+        .split(',')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect())
 }
 
 pub fn run(args: &[String]) -> Result<(), String> {
@@ -91,6 +256,8 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut setzen: Option<Vec<String>> = None;
     let mut alles = false;
     let mut nur_zeigen = false;
+    let mut dazu: Vec<String> = Vec::new();
+    let mut weg: Vec<String> = Vec::new();
 
     let mut i = 0;
     while i < args.len() {
@@ -101,22 +268,26 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
             "--setzen" => {
                 i += 1;
-                let liste = args.get(i).ok_or_else(|| {
-                    "--setzen braucht eine Liste, z.B. --setzen brain,fertig".to_string()
-                })?;
-                setzen = Some(
-                    liste
-                        .split(',')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect(),
-                );
+                setzen = Some(liste_lesen(args, i, "--setzen")?);
+            }
+            "--dazu" => {
+                i += 1;
+                dazu.extend(liste_lesen(args, i, "--dazu")?);
+            }
+            "--weg" => {
+                i += 1;
+                weg.extend(liste_lesen(args, i, "--weg")?);
             }
             "--alles" => alles = true,
             "--zeigen" => nur_zeigen = true,
             other => return Err(format!("Unbekannte Option für select: {other}")),
         }
         i += 1;
+    }
+
+    let aendert_einzeln = !dazu.is_empty() || !weg.is_empty();
+    if aendert_einzeln && (alles || setzen.is_some()) {
+        return Err("--dazu/--weg ändern die bestehende Auswahl; nicht zusammen mit --setzen oder --alles.".to_string());
     }
 
     let connection = config::load()?;
@@ -133,7 +304,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     )?;
 
     let katalog = katalog_lesen(&stand);
-    let mut gewaehlt: BTreeSet<String> = slugs_lesen(&stand);
+    let auswahl = Auswahl::lesen(&stand);
+    let typgenau = auswahl.typgenau;
+    let mut gewaehlt: BTreeSet<String> = auswahl.als_schluessel(&katalog);
 
     let mut modus = stand
         .get("mode")
@@ -152,9 +325,44 @@ pub fn run(args: &[String]) -> Result<(), String> {
     if alles {
         // Gewählte MCP-Server bleiben gewählt — „alles" schaltet sie weder
         // ein noch aus.
-        let liste = zu_speichern(MODUS_ALLES, &gewaehlt, &katalog);
+        let liste = zu_speichern(MODUS_ALLES, &gewaehlt, typgenau);
 
         return speichern(&connection, &token, &geraet, MODUS_ALLES, &liste, &geraetename);
+    }
+
+    if aendert_einzeln {
+        // Erst alles auflösen, dann ändern: Ein unbekannter oder mehrdeutiger
+        // Name bricht ab, bevor irgendetwas gespeichert ist.
+        let mut fehler = Vec::new();
+        let mut aufgeloest = |namen: &[String]| -> Vec<String> {
+            namen
+                .iter()
+                .filter_map(|n| aufloesen(n, &katalog).map_err(|e| fehler.push(e)).ok())
+                .collect()
+        };
+        let dazu = aufgeloest(&dazu);
+        let weg = aufgeloest(&weg);
+
+        if !fehler.is_empty() {
+            for f in &fehler {
+                eprintln!("{f}");
+            }
+            return Err("Nichts gespeichert.".to_string());
+        }
+
+        let (geaendert, meldungen) = aendern(&modus, &mut gewaehlt, &dazu, &weg);
+        for m in &meldungen {
+            println!("{m}");
+        }
+
+        if !geaendert {
+            println!("Nichts geändert.");
+            return Ok(());
+        }
+
+        let liste = zu_speichern(&modus, &gewaehlt, typgenau);
+
+        return speichern(&connection, &token, &geraet, &modus, &liste, &geraetename);
     }
 
     if let Some(liste) = setzen {
@@ -176,7 +384,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
         if !nur_zeigen {
             println!();
             println!("Kein Terminal — nichts geändert.");
-            println!("Zum Setzen:  select --setzen brain,fertig   oder   select --alles");
+            println!("Ergänzen:    select --dazu mcp/playwright   ·   Entfernen: select --weg mcp/playwright");
         }
 
         return Ok(());
@@ -209,7 +417,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
 
         match eingabe {
             "" => {
-                let liste = zu_speichern(&modus, &gewaehlt, &katalog);
+                let liste = zu_speichern(&modus, &gewaehlt, typgenau);
 
                 return speichern(&connection, &token, &geraet, &modus, &liste, &geraetename);
             }
@@ -240,10 +448,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     println!("Nichts gefunden für „{wort}“.");
                 } else {
                     for e in treffer {
-                        let nummer = katalog.iter().position(|k| k.slug == e.slug).unwrap_or(0) + 1;
+                        let nummer = katalog
+                            .iter()
+                            .position(|k| k.schluessel() == e.schluessel())
+                            .unwrap_or(0)
+                            + 1;
                         println!(
                             "  {nummer:>3} [{}] {} ({})",
-                            if gewaehlt.contains(&e.slug) { "x" } else { " " },
+                            if gewaehlt.contains(&e.schluessel()) { "x" } else { " " },
                             e.name,
                             e.typ
                         );
@@ -258,9 +470,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
                     match teil.parse::<usize>() {
                         Ok(n) if n >= 1 && n <= katalog.len() => {
                             let eintrag = &katalog[n - 1];
-                            let slug = eintrag.slug.clone();
-                            if !gewaehlt.remove(&slug) {
-                                gewaehlt.insert(slug);
+                            let schluessel = eintrag.schluessel();
+                            if !gewaehlt.remove(&schluessel) {
+                                gewaehlt.insert(schluessel);
                             }
                             // Sobald jemand einzeln wählt, ist „alles“ nicht
                             // mehr gemeint — sonst hakt man an und nichts ändert
@@ -343,7 +555,7 @@ fn zeigen(geraet: &str, modus: &str, gewaehlt: &BTreeSet<String>, katalog: &[Ein
         println!(
             "  {:>3} [{}] {}",
             i + 1,
-            if gewaehlt.contains(&e.slug) { "x" } else { " " },
+            if gewaehlt.contains(&e.schluessel()) { "x" } else { " " },
             e.name
         );
     }
@@ -403,25 +615,131 @@ mod tests {
         }
     }
 
-    #[test]
-    fn alles_speichert_nur_die_gewaehlten_mcp_server() {
-        let katalog = vec![
+    fn menge(werte: &[&str]) -> BTreeSet<String> {
+        werte.iter().map(|s| s.to_string()).collect()
+    }
+
+    fn katalog() -> Vec<Eintrag> {
+        vec![
             eintrag("brain", "skill"),
             eintrag("fertig", "skill"),
             eintrag("playwright", "mcp"),
+            eintrag("playwright", "skill"),
             eintrag("chrome-devtools", "mcp"),
-        ];
-        let gewaehlt: BTreeSet<String> = ["brain", "playwright"].iter().map(|s| s.to_string()).collect();
+        ]
+    }
 
-        assert_eq!(zu_speichern(MODUS_ALLES, &gewaehlt, &katalog), vec!["playwright"]);
+    #[test]
+    fn alles_speichert_nur_die_gewaehlten_mcp_server() {
+        let gewaehlt = menge(&["skill/brain", "mcp/playwright"]);
+
+        assert_eq!(zu_speichern(MODUS_ALLES, &gewaehlt, true), vec!["mcp/playwright"]);
 
         // Im Modus „auswahl" gilt die Liste, wie sie ist.
         assert_eq!(
-            zu_speichern(MODUS_AUSWAHL, &gewaehlt, &katalog),
-            vec!["brain", "playwright"]
+            zu_speichern(MODUS_AUSWAHL, &gewaehlt, true),
+            vec!["mcp/playwright", "skill/brain"]
         );
 
         // Nichts gewählt: „alles" nimmt keinen Server mit.
-        assert!(zu_speichern(MODUS_ALLES, &BTreeSet::new(), &katalog).is_empty());
+        assert!(zu_speichern(MODUS_ALLES, &BTreeSet::new(), true).is_empty());
+    }
+
+    #[test]
+    fn alte_instanz_bekommt_nur_slugs() {
+        let gewaehlt = menge(&["skill/brain", "mcp/playwright", "skill/playwright"]);
+
+        assert_eq!(
+            zu_speichern(MODUS_AUSWAHL, &gewaehlt, false),
+            vec!["brain", "playwright"]
+        );
+        assert_eq!(zu_speichern(MODUS_ALLES, &gewaehlt, false), vec!["playwright"]);
+    }
+
+    #[test]
+    fn aufloesen_eindeutig_mehrdeutig_unbekannt() {
+        let k = katalog();
+
+        assert_eq!(aufloesen("brain", &k).unwrap(), "skill/brain");
+        assert_eq!(aufloesen("chrome-devtools", &k).unwrap(), "mcp/chrome-devtools");
+        assert_eq!(aufloesen("mcp/playwright", &k).unwrap(), "mcp/playwright");
+
+        let mehrdeutig = aufloesen("playwright", &k).unwrap_err();
+        assert!(mehrdeutig.contains("mehrdeutig"));
+        assert!(mehrdeutig.contains("mcp/playwright") && mehrdeutig.contains("skill/playwright"));
+
+        assert!(aufloesen("gibtsnicht", &k).is_err());
+        assert!(aufloesen("agent/brain", &k).is_err());
+    }
+
+    #[test]
+    fn dazu_und_weg_im_modus_alles() {
+        let mut gewaehlt = menge(&["mcp/playwright"]);
+
+        let (geaendert, meldungen) = aendern(
+            MODUS_ALLES,
+            &mut gewaehlt,
+            &["mcp/chrome-devtools".to_string(), "skill/brain".to_string()],
+            &["mcp/playwright".to_string()],
+        );
+
+        assert!(geaendert);
+        assert_eq!(gewaehlt, menge(&["mcp/chrome-devtools"]));
+        // Ein Skill wird im Modus „alles" nicht einzeln geführt — Hinweis, kein Eintrag.
+        assert!(meldungen.iter().any(|m| m.contains("skill/brain") && m.contains("ohnehin dabei")));
+        // Gespeichert wird weiter im Modus „alles", nur mit den Servern.
+        assert_eq!(zu_speichern(MODUS_ALLES, &gewaehlt, true), vec!["mcp/chrome-devtools"]);
+    }
+
+    #[test]
+    fn dazu_und_weg_im_modus_auswahl() {
+        let mut gewaehlt = menge(&["skill/brain", "skill/fertig"]);
+
+        let (geaendert, _) = aendern(
+            MODUS_AUSWAHL,
+            &mut gewaehlt,
+            &["mcp/playwright".to_string()],
+            &["skill/fertig".to_string()],
+        );
+
+        assert!(geaendert);
+        assert_eq!(gewaehlt, menge(&["mcp/playwright", "skill/brain"]));
+
+        // Was schon gewählt bzw. nicht gewählt ist, ändert nichts.
+        let (geaendert, meldungen) = aendern(
+            MODUS_AUSWAHL,
+            &mut gewaehlt,
+            &["skill/brain".to_string()],
+            &["skill/fertig".to_string()],
+        );
+        assert!(!geaendert);
+        assert_eq!(meldungen.len(), 2);
+    }
+
+    #[test]
+    fn typgenaue_auswahl_trennt_skill_und_server() {
+        let stand = serde_json::json!({
+            "mode": "alles",
+            "slugs": ["playwright"],
+            "items": [{ "type": "skill", "slug": "playwright" }],
+        });
+        let auswahl = Auswahl::lesen(&stand);
+
+        assert!(auswahl.enthaelt("skill", "playwright"));
+        // Der gleichnamige Skill wählt den Server NICHT mit.
+        assert!(!auswahl.enthaelt("mcp", "playwright"));
+    }
+
+    #[test]
+    fn ohne_items_gilt_der_slug_typuebergreifend() {
+        let stand = serde_json::json!({ "mode": "alles", "slugs": ["playwright"] });
+        let auswahl = Auswahl::lesen(&stand);
+
+        assert!(auswahl.enthaelt("mcp", "playwright"));
+        assert!(auswahl.enthaelt("skill", "playwright"));
+        assert_eq!(
+            auswahl.als_schluessel(&katalog()),
+            menge(&["mcp/playwright", "skill/playwright"])
+        );
     }
 }

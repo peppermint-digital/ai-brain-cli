@@ -66,6 +66,8 @@ Schalter fuer `agent`:
 | sync [--apply] | Skills und Agents aus dem Repository holen, einzeln gewaehlte MCP-Server in Claude Code und Codex eintragen. Ohne --apply wird nur gezeigt. |
 | publish <name> | Einen lokalen Eintrag zurueckgeben. |
 | select | Waehlen, welche Eintraege dieser Rechner bekommt. MCP-Server nur einzeln, nie ueber „alles“. |
+| select --dazu a,b / --weg a,b | Ohne Terminal ergaenzen bzw. entfernen, der Modus bleibt. Namen als `typ/slug` (`mcp/playwright`) oder eindeutiger Slug; mehrdeutig oder unbekannt bricht ab, ohne zu speichern. |
+| select --setzen a,b | Stellt auf Modus „auswahl" und ersetzt die ganze Liste. Ein Rechner auf „alles" verliert damit alle uebrigen Eintraege — zum Ergaenzen `--dazu`. |
 
 Weitere Schalter fuer `sync`: `--only`, `--force`,
 `--aufraeumen`, `--ja`.

@@ -125,7 +125,12 @@ Optionen für `agent`:
 
 Optionen für `select`:
   --zeigen              Nur anzeigen, nichts fragen und nichts aendern
-  --setzen a,b,c        Ohne Rueckfrage genau diese Eintraege setzen
+  --dazu a,b            Ohne Rueckfrage ergaenzen; der Modus bleibt (alles bleibt alles)
+  --weg a,b             Ohne Rueckfrage entfernen; der Modus bleibt
+                        Namen als typ/slug (mcp/playwright) oder eindeutiger Slug
+  --setzen a,b,c        Ohne Rueckfrage genau diese Eintraege setzen. ACHTUNG: stellt
+                        auf Modus auswahl und ERSETZT die ganze Liste — zum Ergaenzen
+                        --dazu nehmen
   --alles               Ohne Rueckfrage auf alles stellen (auch kuenftige Eintraege;
                         MCP-Server nie — die bleiben, wie sie einzeln gewaehlt sind)
   --geraet <Name>       Ein anderes eigenes Geraet einstellen (Standard: dieser Rechner)

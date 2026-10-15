@@ -39,6 +39,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// Je MCP-Server die Orte, an denen er ausgetragen werden soll: Pfad der
+/// Claude-Konfiguration, oder `None` für Codex.
+type McpOrte = Vec<(String, Option<PathBuf>)>;
+
 #[derive(Debug, Deserialize)]
 struct Manifest {
     items: Vec<ManifestItem>,
@@ -372,7 +376,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mcp_bekannt = state.items.keys().any(|k| k.starts_with("mcp/"));
     let mcp_im_manifest = manifest.items.iter().any(|i| i.kind == "mcp");
 
-    let gewaehlt: Option<BTreeSet<String>> = if mcp_bekannt || mcp_im_manifest {
+    let gewaehlt: Option<crate::select::Auswahl> = if mcp_bekannt || mcp_im_manifest {
         match crate::select::ausdruecklich_gewaehlt(&connection, &token) {
             Ok(liste) => Some(liste),
             Err(err) => {
@@ -381,7 +385,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
         }
     } else {
-        Some(BTreeSet::new())
+        Some(crate::select::Auswahl::leer())
     };
 
     let browser = mcp_eintraege::browser_finden();
@@ -396,7 +400,11 @@ pub fn run(args: &[String]) -> Result<(), String> {
     let mut mcp_fehlgeschlagen = 0usize;
 
     for item in &mcp_kandidaten {
-        let ausdruecklich = gewaehlt.as_ref().map(|g| g.contains(&item.slug)).unwrap_or(false);
+        // Typgenau: Ein gleichnamiger Skill wählt den Server nicht mit (#7891).
+        let ausdruecklich = gewaehlt
+            .as_ref()
+            .map(|g| g.enthaelt("mcp", &item.slug))
+            .unwrap_or(false);
 
         if !ausdruecklich {
             mcp_nicht_gewaehlt.push(item.clone());
@@ -479,13 +487,13 @@ pub fn run(args: &[String]) -> Result<(), String> {
     // Nicht mehr gewählte MCP-Server: nur was der Harness selbst geschrieben
     // hat und was seither unverändert dasteht. Ohne verlässliche Auswahl wird
     // hier gar nichts entschieden.
-    let mut mcp_ueberzaehlig: Vec<(String, Vec<(String, Option<PathBuf>)>)> = Vec::new();
+    let mut mcp_ueberzaehlig: Vec<(String, McpOrte)> = Vec::new();
 
     if let Some(gewaehlt) = &gewaehlt {
         let aktiv: BTreeSet<String> = manifest
             .items
             .iter()
-            .filter(|i| i.kind == "mcp" && gewaehlt.contains(&i.slug))
+            .filter(|i| i.kind == "mcp" && gewaehlt.enthaelt("mcp", &i.slug))
             .map(|i| format!("mcp/{}", i.slug))
             .collect();
 
@@ -495,7 +503,7 @@ pub fn run(args: &[String]) -> Result<(), String> {
             }
 
             let slug = &key["mcp/".len()..];
-            let mut weg: Vec<(String, Option<PathBuf>)> = Vec::new();
+            let mut weg: McpOrte = Vec::new();
 
             for (ort, hash) in &bekannt.orte {
                 let (vorhanden, pfad) = if ort == mcp_eintraege::CODEX {
