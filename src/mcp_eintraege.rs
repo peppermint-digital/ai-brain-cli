@@ -111,10 +111,11 @@ impl Definition {
 
 /// Liest den Inhalt eines `mcp`-Eintrags.
 ///
-/// Tolerant gegenüber der Verpackung, streng beim Inhalt: Die Instanz liefert
-/// die Definition als JSON — entweder als Feld `content` oder als einzige bzw.
-/// `.json`-Datei im Bundle. Fehlt `command`, ist das kein Server, und es wird
-/// nichts eingetragen.
+/// Die Instanz liefert im Bündel den Schlüssel `mcp`: die schon geprüfte und
+/// mit Vorgaben aufgefüllte Definition. Die gilt — die Regeln der Instanz
+/// werden hier nicht nachgebaut. Nur wenn er fehlt (ältere Instanz), wird die
+/// Datei `mcp.json` aus `files` gelesen. Fehlt `command`, ist das kein Server,
+/// und es wird nichts eingetragen.
 pub fn definition_lesen(bundle: &serde_json::Value) -> Result<Definition, String> {
     let roh = inhalt_finden(bundle)
         .ok_or_else(|| "der Eintrag enthält keine Server-Definition".to_string())?;
@@ -136,7 +137,7 @@ pub fn definition_lesen(bundle: &serde_json::Value) -> Result<Definition, String
 }
 
 fn inhalt_finden(bundle: &serde_json::Value) -> Option<&serde_json::Value> {
-    for feld in ["definition", "content"] {
+    for feld in ["mcp", "definition"] {
         if let Some(wert) = bundle.get(feld) {
             if !wert.is_null() {
                 return Some(wert);
@@ -148,11 +149,14 @@ fn inhalt_finden(bundle: &serde_json::Value) -> Option<&serde_json::Value> {
 
     dateien
         .iter()
-        .find(|d| {
-            d.get("path")
-                .and_then(|p| p.as_str())
-                .map(|p| p.ends_with(".json"))
-                .unwrap_or(false)
+        .find(|d| d.get("path").and_then(|p| p.as_str()) == Some("mcp.json"))
+        .or_else(|| {
+            dateien.iter().find(|d| {
+                d.get("path")
+                    .and_then(|p| p.as_str())
+                    .map(|p| p.ends_with(".json"))
+                    .unwrap_or(false)
+            })
         })
         .or_else(|| if dateien.len() == 1 { dateien.first() } else { None })
         .and_then(|d| d.get("content"))
@@ -632,14 +636,32 @@ mod tests {
 
     #[test]
     fn liest_die_definition_aus_jeder_verpackung() {
-        let als_text = serde_json::json!({
+        // So liefert die Instanz: `mcp` geprüft und aufgefüllt, daneben die Datei.
+        let bundle = serde_json::json!({
             "checksum": "x",
-            "content": "{\"command\":\"npx\",\"args\":[\"-y\",\"chrome-devtools-mcp@latest\"],\"browser_flag\":\"--executablePath\"}",
+            "files": [{ "path": "mcp.json", "content": "{\"command\":\"FALSCH\"}", "encoding": "utf-8" }],
+            "mcp": {
+                "command": "npx",
+                "args": ["-y", "chrome-devtools-mcp@latest"],
+                "env": {},
+                "targets": ["claude", "codex"],
+                "browser_flag": "--executablePath",
+            },
         });
-        let d = definition_lesen(&als_text).unwrap();
-        assert_eq!(d.command, "npx");
-        assert_eq!(d.targets, alle_ziele(), "ohne Angabe gilt beides");
+        let d = definition_lesen(&bundle).unwrap();
+        assert_eq!(d.command, "npx", "der Schlüssel `mcp` hat Vorrang vor der Datei");
         assert_eq!(d.browser_flag.as_deref(), Some("--executablePath"));
+
+        // browser_flag: null von der Instanz heisst: kein Browser.
+        let ohne = serde_json::json!({ "mcp": { "command": "npx", "args": [], "env": {}, "targets": ["claude"], "browser_flag": null } });
+        assert_eq!(definition_lesen(&ohne).unwrap().browser_flag, None);
+
+        // Ältere Instanz ohne `mcp`: die Datei, Vorgaben hier.
+        let nur_datei = serde_json::json!({
+            "files": [{ "path": "mcp.json", "content": "{\"command\":\"npx\"}" }],
+        });
+        let d = definition_lesen(&nur_datei).unwrap();
+        assert_eq!(d.targets, alle_ziele(), "ohne Angabe gilt beides");
 
         let als_datei = serde_json::json!({
             "checksum": "x",
@@ -649,12 +671,9 @@ mod tests {
         assert!(d.fuer_claude());
         assert!(!d.fuer_codex());
 
-        let als_objekt = serde_json::json!({ "definition": { "command": "uvx", "args": ["x"] } });
-        assert_eq!(definition_lesen(&als_objekt).unwrap().command, "uvx");
-
         // Ohne Befehl kein Server.
-        assert!(definition_lesen(&serde_json::json!({ "content": "{\"args\":[]}" })).is_err());
-        assert!(definition_lesen(&serde_json::json!({ "content": "kein json" })).is_err());
+        assert!(definition_lesen(&serde_json::json!({ "mcp": { "args": [] } })).is_err());
+        assert!(definition_lesen(&serde_json::json!({ "files": [{ "path": "mcp.json", "content": "kein json" }] })).is_err());
         assert!(definition_lesen(&serde_json::json!({ "files": [] })).is_err());
     }
 
