@@ -669,6 +669,149 @@ Die Kennung ist `<sekunde>-<prozess>`, bei Kollision mit Zusatz. Der Ordner wird
 mit `create_dir` beansprucht — das scheitert, wenn es ihn schon gibt, und ist
 damit auch zwischen zwei Prozessen eindeutig.
 
+## Die Maske
+
+`brain` öffnet die Eingabemaske. Sie gehört uns — Eingabe, Darstellung und
+Buchführung; der Motor wird pro Zug gerufen und sieht das Terminal nie.
+
+```
+▰ AI Brain Harness · AI Brain
+──────────────────────────────────────────────────────────────────
+Wer        Bastian auf omarchy  ·  Konto claude:henneberg
+Motor      claude · Vorgabe des Werkzeugs
+Hier       ai-brain · ~/Development/ai-brain
+Greift auf AI Brain · diesen Rechner  ·  lesend — nachsehen ja, anfassen nein
+──────────────────────────────────────────────────────────────────
+Lauf 1792069936-409863  ·  /hilfe für Befehle ohne Modell  ·  Ctrl-D beendet
+
+▸ Führe aus: sleep 8 && echo FERTIG
+  ⚒ Bash  sleep 8 && echo FERTIG
+  ⠹ Bash arbeitet · 8s
+
+FERTIG
+  0.5144 $
+```
+
+Die letzte Zeile vor der Antwort überschreibt sich selbst und zählt mit. Das
+ist kein Zierrat: während ein Werkzeug arbeitet, kommt vom Motor **nichts** —
+ein Befehl mit 60 Sekunden Frist sah vorher aus wie ein Hänger, und man drückt
+Ctrl-C auf etwas, das gerade richtig läuft.
+
+Der Werkzeugname kommt aus dem Blockanfang, nicht aus der fertigen Nachricht.
+Das ist der Unterschied zwischen „ich sehe, was er tut" und „ich sehe
+hinterher, was er getan hat". Die Argumente stehen daneben: wer einem Programm
+die Hoheit über seinen Rechner gibt, soll sehen, womit es sie benutzt.
+
+### Befehle ohne Modell
+
+Eine Nachfrage ist keine Denkaufgabe. Diese Befehle laufen ohne Motor und
+kosten nichts:
+
+| Befehl | Was er zeigt |
+|---|---|
+| `/aufgaben` | offene Aufgaben des Projekts |
+| `/auftraege` | Aufträge, die für diesen Rechner anliegen |
+| `/daueraufgaben` | eingerichtete Daueraufträge dieses Rechners |
+| `/erinnerungen` | Gedächtnis mit AI Brain abgleichen |
+| `/dienste [namen]` | Zustand von Diensten (ohne Namen: alle fehlgeschlagenen) |
+| `/rechner` | Last, Speicher, Platten, Grafikkarte |
+| `/konto [name]` | welches Konto arbeitet — ohne Name: beide Quellen |
+| `/rechte [stufe]` | `lesend` oder `steuernd` |
+| `/neu` | Verlauf fallen lassen |
+| `/hilfe` | diese Liste (auch `/help`, `/?`) |
+| `/ende` | Schluss (auch `/quit`, `/exit`, oder Ctrl-D) |
+
+### Konten
+
+`/konto` fragt **zwei** Quellen und kennzeichnet beide:
+
+```
+  Auf diesem Rechner (imkr)
+    claude
+      stelljes · henneberg (standard) · department
+    codex
+      henneberg (standard)
+
+  In AI Brain
+    Stelljes                     claude  …9gAA
+```
+
+Wer imkr benutzt, hat seine Konten dort; wer nicht, hat sie in AI Brain. Fällt
+eine Quelle aus, verschluckt das die andere nicht.
+
+Ein Wechsel beginnt ein **neues** Gespräch: der Verlauf gehört dem Konto, mit
+dem er begonnen hat. Gewechselt wird derzeit nur zu imkr-Konten — ob ein Gerät
+das Token der Instanz abholen darf, ist eine offene Entscheidung.
+
+## Dieser Rechner als Werkzeug
+
+Neben den Werkzeugen von AI Brain hängt an jedem Zug ein zweiter
+Werkzeugserver: dieser Rechner.
+
+| Werkzeug | Was es tut | Braucht steuernde Rechte |
+|---|---|---|
+| `rechner-dienste` | Zustand von systemd-Units; ohne Argument alle fehlgeschlagenen | — |
+| `rechner-datentraeger` | Belegung der Dateisysteme und Netzlaufwerke | — |
+| `rechner-last` | Laufzeit, Last, Speicher, Grafikkarte | — |
+| `rechner-fenster` | offene Fenster der grafischen Sitzung | — |
+| `rechner-bildschirmfoto` | Bildschirmaufnahme (grim) | — |
+| `rechner-befehl` | Shell-Befehl als angemeldeter Nutzer | ja |
+| `rechner-dienst-steuern` | Unit starten, stoppen, neu starten | ja |
+| `rechner-tippen` | Text in das Fenster mit dem Fokus (wtype) | ja |
+| `rechner-taste` | Taste oder Kombination drücken | ja |
+
+Unter `lesend` **fehlen** die ändernden Werkzeuge in der Liste, statt im Aufruf
+abgelehnt zu werden. Ein Werkzeug, das dasteht und dann „darfst du nicht" sagt,
+lädt zum Probieren ein und kostet jedes Mal einen Zug.
+
+Die Rechte stehen in der Umgebung (`AI_BRAIN_RECHNER_RECHTE`), nicht im Aufruf:
+ein Modell kann sie im laufenden Prozess nicht erweitern.
+
+Bildschirm, Tastatur und Fenster brauchen eine laufende grafische Sitzung. Aus
+einer reinen Textsitzung heraus wird das gesagt, statt mit „failed to retrieve
+wayland globals" zu scheitern — eine Meldung, die nach einem fehlenden
+Programm klingt, obwohl nur die Sitzung fehlt.
+
+## Daueraufträge
+
+Ein Dauerauftrag ist eine wiederkehrende Aufgabe, die in AI Brain als **Daten**
+liegt. Man legt sie im Gespräch an — „überwache das Restic-Backup" — und der
+Harness tut es selbst über `create-device-job-tool`. Kein Code, kein Deploy.
+
+```bash
+ai-brain-harness daueraufgaben              # was eingerichtet ist
+ai-brain-harness daueraufgaben --fahren     # Fälliges abarbeiten und melden
+ai-brain-harness taktgeber --einrichten     # den Abholer als systemd-Nutzer-Timer
+ai-brain-harness taktgeber                  # läuft er? wann zuletzt?
+ai-brain-harness taktgeber --entfernen
+```
+
+`art: befehl` läuft **ohne Modell**. Für Überwachung ist das der Normalfall:
+„ist der Dienst aktiv", „ist der Snapshot jünger als 26 Stunden" sind
+Schwellenfragen. Ein Modell dafür zu starten kostet bei jedem Durchlauf Geld
+für eine Antwort, die feststeht. `art: auftrag` ist für das, was wirklich
+Urteil braucht — und wird vom Taktgeber bewusst übersprungen: ein Zeitplan, der
+unbeaufsichtigt Modelle anwirft, ist eine Kostenquelle ohne Aufsicht.
+
+### Die Stillfrist ist der Kern
+
+Jeder Dauerauftrag hat eine Stillfrist. Bleibt die Meldung länger aus, entsteht
+in AI Brain eine Aufgabe.
+
+Das ist nicht Bequemlichkeit, sondern der Grund für das Ganze. Ein Wächter
+meldet sich, **wenn** etwas nicht stimmt — ein abgeschalteter meldet sich
+ebenfalls nicht und sieht damit genauso aus wie ein zufriedener. Von diesen
+beiden Zuständen ist der falsche der beruhigende.
+
+Auf diesem Rechner stand ein Backup-Wächter dreieinhalb Monate in einer Liste
+und ist **nie gelaufen**. Niemand hat es gemerkt, weil Pausiert wie Ruhe
+aussieht. Deshalb gilt ein nie gelaufener Dauerauftrag ab seinem Anlegen als
+verstummt, nicht erst ab der ersten Meldung.
+
+Und deshalb überwacht der Taktgeber sich **nicht** selbst — das wäre derselbe
+Zirkel. Bleibt er stehen, kommen keine Meldungen, und die Gegenstelle schlägt
+Alarm.
+
 ## Weitere Befehle
 
 ```bash
@@ -694,6 +837,8 @@ einer Stunde tot.
 | `~/.config/ai-brain-cli/connection.json` | Gerätezugangsdaten, Rechte `0600` |
 | `~/.claude.json` | Eintrag `mcpServers.ai-brain` |
 | `~/.claude.json.vor-companion` | Sicherung, angelegt vor dem ersten Eintrag |
+| `~/.local/state/ai-brain-cli/laeufe/` | Zustand der Agentenläufe |
+| `~/.config/systemd/user/ai-brain-daueraufgaben.{service,timer}` | der Abholer |
 
 Der Name `vor-companion` ist historisch: Das Programm hiess bis Oktober 2026
 `ai-brain-companion`. Die Datei behaelt ihren Namen, damit auf den verbundenen
