@@ -230,6 +230,14 @@ fn jsonl_dateien(wurzel: &Path, tiefe: usize, sammlung: &mut Vec<PathBuf>) {
 fn claude_datei(pfad: &Path) -> Option<Sitzung> {
     let text = std::fs::read_to_string(pfad).ok()?;
 
+    // Welches Arbeitsverzeichnis die Sitzung praegt, entscheidet die HAEUFIGKEIT,
+    // nicht die erste Nennung. Gemessen am 16.10.2026: eine Sitzung nannte als
+    // erstes die Heimat und arbeitete dann 337 Saetze lang in einem anderen
+    // Ordner. Bei einer normalen Projektsitzung stimmen beide ueberein (742×
+    // derselbe Pfad), der Unterschied kostet also nichts und gewinnt die
+    // wandernden Faelle.
+    let mut verzeichnisse: BTreeMap<String, usize> = BTreeMap::new();
+
     let mut s = Sitzung {
         werkzeug: "claude",
         kennung: String::new(),
@@ -254,10 +262,8 @@ fn claude_datei(pfad: &Path) -> Option<Sitzung> {
             }
         }
 
-        if s.verzeichnis.is_none() {
-            if let Some(v) = satz.get("cwd").and_then(|v| v.as_str()) {
-                s.verzeichnis = Some(v.to_string());
-            }
+        if let Some(v) = satz.get("cwd").and_then(|v| v.as_str()) {
+            *verzeichnisse.entry(v.to_string()).or_insert(0) += 1;
         }
 
         // Die Zugdauer steht in eigenen Saetzen, nicht am `usage`.
@@ -290,6 +296,11 @@ fn claude_datei(pfad: &Path) -> Option<Sitzung> {
         s.ein_frisch = Some(s.ein_frisch.unwrap_or(0) + frisch);
         s.cache_schreiben = Some(s.cache_schreiben.unwrap_or(0) + schreiben);
     }
+
+    s.verzeichnis = verzeichnisse
+        .into_iter()
+        .max_by_key(|(pfad, anzahl)| (*anzahl, pfad.clone()))
+        .map(|(pfad, _)| pfad);
 
     if s.kennung.is_empty() {
         // Ohne Kennung kann der Server keinen Zuwachs bilden. Der Dateiname ist
@@ -715,7 +726,19 @@ fn grenze(args: &[String]) -> usize {
         .unwrap_or(50)
 }
 
-fn konto(args: &[String]) -> Option<String> {
+/// Das Konto, unter dem die gemeldete Sitzung lief.
+///
+/// **Nur fuer die Sitzung, um die es geht.** `CLAUDE_CONFIG_DIR` sagt, in
+/// welchem Konto DIESER Lauf steckt — nicht, in welchem eine Sitzung von
+/// vorgestern lief. Ein nachholender Lauf meldet viele Sitzungen, und sie
+/// stammen aus verschiedenen Konten; das aktuelle auf alle zu stempeln ist
+/// schlimmer als die Luecke, weil es wie eine Messung aussieht.
+///
+/// Am 16.10.2026 genau so passiert: der erste Nachhol-Lauf schrieb „henneberg"
+/// auf 2066 historische Sitzungen, obwohl ein Teil davon unter `department`
+/// lief. Darum haengt das Konto jetzt daran, dass eine BESTIMMTE Sitzung
+/// gemeint ist — und das ist nur im Hook der Fall.
+fn konto(args: &[String], gemeinte: Option<&str>) -> Option<String> {
     if let Some(genannt) = args
         .iter()
         .position(|a| a == "--konto")
@@ -726,12 +749,11 @@ fn konto(args: &[String]) -> Option<String> {
         return Some(genannt);
     }
 
-    // **Nur aus der laufenden Sitzung.** `konto::aktuelles` liest
-    // `CLAUDE_CONFIG_DIR`, und die steht nur, wenn dieser Lauf INNERHALB eines
-    // Gespraechs passiert — also im Hook. Ein nachholender Lauf von Hand hat
-    // sie nicht, und dann bleibt das Konto leer statt geraten: aus den
-    // Protokollen ist es nicht ableitbar, weil alle Konten dasselbe
-    // Transcript-Verzeichnis benutzen.
+    // Ohne benannte Sitzung ist das hier ein nachholender Lauf — dann bleibt
+    // das Konto leer. Es ist aus den Protokollen nicht ableitbar, weil alle
+    // Konten dasselbe Transcript-Verzeichnis benutzen.
+    gemeinte?;
+
     let name = crate::konto::aktuelles(&BTreeMap::new());
 
     if name == "Standard" {
@@ -864,7 +886,7 @@ fn melden(args: &[String]) -> Result<(), String> {
     let mut stand = stand_laden();
     let offen = offene(&alle, &stand);
     let deckel = grenze(args);
-    let konto = konto(args);
+    let konto = konto(args, gemeint.as_deref());
 
     if offen.is_empty() {
         if !args.iter().any(|a| a == "--still") {
@@ -967,6 +989,23 @@ mod tests {
         assert_eq!(s.ein_frisch, Some(5));
         assert_eq!(s.cache_schreiben, Some(600));
         assert_eq!(s.modell.as_deref(), Some("claude-opus-5"));
+        assert_eq!(s.verzeichnis.as_deref(), Some("/home/x/Development/ai-brain"));
+    }
+
+    #[test]
+    fn das_haeufigste_arbeitsverzeichnis_gewinnt_nicht_das_erste() {
+        // Der gemessene Fall: erst die Heimat, dann die eigentliche Arbeit
+        // woanders. Wer die erste Nennung nimmt, ordnet die Sitzung dem
+        // falschen Projekt zu — oder gar keinem.
+        let inhalt = concat!(
+            r#"{"sessionId":"wandert","cwd":"/home/x","type":"assistant","message":{"usage":{"output_tokens":1}}}"#, "\n",
+            r#"{"sessionId":"wandert","cwd":"/home/x/Development/ai-brain","type":"assistant","message":{"usage":{"output_tokens":1}}}"#, "\n",
+            r#"{"sessionId":"wandert","cwd":"/home/x/Development/ai-brain","type":"assistant","message":{"usage":{"output_tokens":1}}}"#, "\n",
+        );
+
+        let pfad = wegwerf("claude-wandert.jsonl", inhalt);
+        let s = claude_datei(&pfad).expect("lesbar");
+
         assert_eq!(s.verzeichnis.as_deref(), Some("/home/x/Development/ai-brain"));
     }
 
@@ -1143,6 +1182,31 @@ mod tests {
         s.dauer_ms = Some(0);
 
         assert!(nutzlast(&s, None).get("dauer_ms").is_none());
+    }
+
+    #[test]
+    fn ohne_benannte_sitzung_bleibt_das_konto_leer() {
+        // Der Fehler vom 16.10.2026: ein nachholender Lauf stempelte das
+        // AKTUELLE Konto auf 2066 historische Sitzungen aus verschiedenen
+        // Konten. Eine Luecke ist besser als eine Zahl, die wie eine Messung
+        // aussieht.
+        std::env::set_var("CLAUDE_CONFIG_DIR", "/home/x/.local/state/imkr/accounts/claude/henneberg");
+
+        assert_eq!(konto(&[], None), None, "nachholend: kein Konto");
+        assert_eq!(
+            konto(&[], Some("eine-sitzung")).as_deref(),
+            Some("henneberg"),
+            "benannte Sitzung: das Konto dieses Laufs"
+        );
+
+        std::env::remove_var("CLAUDE_CONFIG_DIR");
+    }
+
+    #[test]
+    fn ein_genanntes_konto_gilt_auch_nachholend() {
+        let args = vec!["--konto".to_string(), "department".to_string()];
+
+        assert_eq!(konto(&args, None).as_deref(), Some("department"));
     }
 
     #[test]
