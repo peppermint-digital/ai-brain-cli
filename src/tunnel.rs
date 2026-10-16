@@ -80,6 +80,66 @@ fn bildschirm_hier() -> bool {
     grafisch && std::env::var("SSH_CONNECTION").is_err()
 }
 
+/// Die grafische Sitzung des angemeldeten Menschen uebernehmen.
+///
+/// **Ohne das startet kein Browser.** Ueber SSH gibt es kein
+/// `WAYLAND_DISPLAY`, und Chromium beendet sich dann sofort:
+///
+/// ```text
+/// Failed to connect to Wayland display: No such file or directory
+/// The platform failed to initialize.  Exiting.
+/// ```
+///
+/// Am 16.10.2026 genau so gemessen, nachdem ich diesen Teil des Skripts beim
+/// Portieren uebersehen hatte. Der Socket liegt in `XDG_RUNTIME_DIR` und heisst
+/// `wayland-<n>`; die `.lock`-Datei daneben ist keiner.
+///
+/// Gibt `false` zurueck, wenn niemand grafisch angemeldet ist — dann gibt es
+/// auch keinen Bildschirm, auf dem jemand zusehen koennte.
+fn sitzung_uebernehmen() -> bool {
+    let laufzeit = std::env::var("XDG_RUNTIME_DIR")
+        .unwrap_or_else(|_| format!("/run/user/{}", nutzer_nummer()));
+
+    std::env::set_var("XDG_RUNTIME_DIR", &laufzeit);
+
+    if let Ok(eintraege) = std::fs::read_dir(&laufzeit) {
+        for eintrag in eintraege.flatten() {
+            let name = eintrag.file_name().to_string_lossy().to_string();
+
+            if !name.starts_with("wayland-") || name.ends_with(".lock") {
+                continue;
+            }
+
+            std::env::set_var("WAYLAND_DISPLAY", &name);
+
+            // `DISPLAY` fuer alles, was noch ueber X geht (XWayland).
+            if std::env::var("DISPLAY").is_err() {
+                std::env::set_var("DISPLAY", ":0");
+            }
+
+            return true;
+        }
+    }
+
+    // Kein Wayland, aber vielleicht ein X-Server.
+    if PathBuf::from("/tmp/.X11-unix/X0").exists() {
+        std::env::set_var("DISPLAY", ":0");
+
+        return true;
+    }
+
+    false
+}
+
+fn nutzer_nummer() -> u32 {
+    Command::new("id")
+        .arg("-u")
+        .output()
+        .ok()
+        .and_then(|a| String::from_utf8_lossy(&a.stdout).trim().parse().ok())
+        .unwrap_or(1000)
+}
+
 /// Der SSH-Name eines Rechners zu seiner Adresse.
 ///
 /// `SSH_CONNECTION` nennt eine IP. Ein `ssh <ip>` würde oft gehen, aber die
@@ -166,11 +226,71 @@ fn betreiber(wunsch: &Wunsch) -> Result<(String, String), String> {
             .to_string()
     })?;
 
-    // Unter welchem Namen erreicht der andere Rechner diesen hier? Der eigene
-    // Hostname ist die beste Antwort, die dieser Rechner selbst geben kann.
-    let nach = nach.unwrap_or_else(|| gethostname::gethostname().to_string_lossy().to_string());
+    let nach = nach.unwrap_or_else(eigener_name);
 
     Ok((von, nach))
+}
+
+/// Unter welchem Namen ein anderer Rechner diesen hier erreicht.
+///
+/// Der rohe Hostname ist die naheliegende, aber nicht die beste Antwort: diese
+/// Maschine heisst `omarchy` und ist im Netz als `codingmachine` bekannt. Ein
+/// `ssh -R` mit dem falschen Namen scheitert an der Namensauflösung — am
+/// 16.10.2026 genau so im Protokoll gelandet
+/// (`Could not resolve hostname codingmachine`, weil der Name hier fehlt).
+///
+/// Deshalb zuerst der Name, unter dem sich dieser Rechner in imkr eingetragen
+/// hat; das ist der Name, den die anderen benutzen. Erst danach der Hostname.
+fn eigener_name() -> String {
+    if let Ok(heim) = config::heimat() {
+        let pfad = std::env::var("IMKR_CONFIG")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| heim.join(".config/imkr/config.toml"));
+
+        if let Ok(text) = std::fs::read_to_string(pfad) {
+            if let Some(name) = imkr_name(&text) {
+                return name;
+            }
+        }
+    }
+
+    gethostname::gethostname().to_string_lossy().to_string()
+}
+
+/// `name = "..."` aus imkrs Konfiguration — nur auf oberster Ebene.
+///
+/// **Nicht der erste Treffer.** In dieser Konfiguration steht auf Zeile 18
+/// `name = "codingmachine"` und auf Zeile 47, in einem `[[commands]]`-Abschnitt,
+/// `name = "lazygit"`. Das Skript nimmt `head -n 1` und trifft damit heute das
+/// Richtige — aber nur, solange die Reihenfolge so bleibt. Ein Tunnel nach
+/// „lazygit" waere ein Fehler, den niemand sucht.
+///
+/// In TOML stehen Schluessel der obersten Ebene vor dem ersten Abschnitt. Also
+/// wird bei der ersten `[`-Zeile abgebrochen.
+fn imkr_name(text: &str) -> Option<String> {
+    for zeile in text.lines() {
+        let zeile = zeile.trim();
+
+        if zeile.starts_with('[') {
+            break;
+        }
+
+        let Some(rest) = zeile.strip_prefix("name") else {
+            continue;
+        };
+
+        let Some(wert) = rest.trim_start().strip_prefix('=') else {
+            continue;
+        };
+
+        let wert = wert.trim().trim_matches('"').trim();
+
+        if !wert.is_empty() {
+            return Some(wert.to_string());
+        }
+    }
+
+    None
 }
 
 /// `imkr operator --json` lesen, falls imkr da ist.
@@ -274,8 +394,13 @@ fn beenden(port: u16, was: &str) -> bool {
         return false;
     };
 
+    // Die Ausgabe von `kill` wird verworfen: ein Prozess, der schon weg ist,
+    // ist hier kein Fehler, und „No such process" neben der eigenen Meldung
+    // liest sich wie einer.
     let getroffen = Command::new("kill")
         .arg(pid.to_string())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map(|s| s.success())
         .unwrap_or(false);
@@ -373,11 +498,34 @@ fn schloss_aufraeumen(port: u16) {
     }
 }
 
-fn abgekoppelt(mut befehl: Command, port: u16, was: &str) -> Result<u32, String> {
-    let kind = befehl
+/// Einen Prozess starten, der den Aufruf ueberlebt.
+///
+/// **`setsid`, nicht nur `&`.** Wird der Befehl ueber SSH gerufen, schickt der
+/// SSH-Dienst beim Schliessen des Kanals ein SIGHUP an die ganze Prozessgruppe
+/// — der Browser waere weg, sobald die Verbindung endet. Eine eigene Sitzung
+/// nimmt ihn aus dieser Gruppe heraus. Das Skript macht es mit `setsid nohup`.
+///
+/// **Die Ausgabe geht in ein Protokoll, nicht nach /dev/null.** Beim ersten
+/// Fernlauf am 16.10.2026 beendete sich Chromium sofort („Failed to initialize
+/// Wayland platform") — und weil die Ausgabe verworfen wurde, war davon nichts
+/// zu sehen. Die Meldung lautete nur „antwortet nach 25 s nicht", was auf eine
+/// langsame Maschine hindeutet statt auf den echten Grund.
+fn abgekoppelt(programm: &str, argumente: &[String], port: u16, was: &str) -> Result<u32, String> {
+    let protokoll = merker(port, &format!("{was}.log"))?;
+
+    let datei = std::fs::File::create(&protokoll)
+        .map_err(|e| format!("{} ist nicht schreibbar: {e}", protokoll.display()))?;
+
+    let fehler = datei
+        .try_clone()
+        .map_err(|e| format!("Protokoll laesst sich nicht doppeln: {e}"))?;
+
+    let kind = Command::new("setsid")
+        .arg(programm)
+        .args(argumente)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(datei))
+        .stderr(Stdio::from(fehler))
         .spawn()
         .map_err(|e| format!("{was} liess sich nicht starten: {e}"))?;
 
@@ -388,6 +536,26 @@ fn abgekoppelt(mut befehl: Command, port: u16, was: &str) -> Result<u32, String>
         .map_err(|e| format!("{} ist nicht schreibbar: {e}", pfad.display()))?;
 
     Ok(pid)
+}
+
+/// Was im Protokoll steht — fuer die Fehlermeldung.
+fn protokoll_schwanz(port: u16, was: &str) -> String {
+    let Ok(pfad) = merker(port, &format!("{was}.log")) else {
+        return String::new();
+    };
+
+    let Ok(text) = std::fs::read_to_string(&pfad) else {
+        return String::new();
+    };
+
+    let zeilen: Vec<&str> = text.lines().filter(|z| !z.trim().is_empty()).collect();
+    let letzte: Vec<&str> = zeilen.iter().rev().take(3).rev().copied().collect();
+
+    if letzte.is_empty() {
+        return String::new();
+    }
+
+    format!("\n{}", letzte.join("\n"))
 }
 
 fn hier_starten(nach: &str, port: u16) -> Result<(), String> {
@@ -413,50 +581,67 @@ fn hier_starten(nach: &str, port: u16) -> Result<(), String> {
     let profil = profil(port)?;
 
     if !browser_antwortet(port) {
+        // Ueber SSH gerufen gibt es keinen Bildschirm in der Umgebung — der
+        // des angemeldeten Menschen muss uebernommen werden, sonst beendet
+        // sich Chromium sofort.
+        if !bildschirm_hier() && !sitzung_uebernehmen() {
+            return Err(format!(
+                "Auf {} ist niemand grafisch angemeldet — es gibt keinen Bildschirm, \
+                 auf dem jemand zusehen koennte.",
+                gethostname::gethostname().to_string_lossy()
+            ));
+        }
+
         schloss_aufraeumen(port);
 
         let programm = chromium()?;
-        let mut browser = Command::new(programm);
-        browser.args([
-            format!("--remote-debugging-port={port}"),
-            format!("--user-data-dir={}", profil.display()),
-            "--no-first-run".to_string(),
-            "--no-default-browser-check".to_string(),
-            "about:blank".to_string(),
-        ]);
 
-        abgekoppelt(browser, port, "browser")?;
+        abgekoppelt(
+            &programm,
+            &[
+                format!("--remote-debugging-port={port}"),
+                format!("--user-data-dir={}", profil.display()),
+                "--no-first-run".to_string(),
+                "--no-default-browser-check".to_string(),
+                "about:blank".to_string(),
+            ],
+            port,
+            "browser",
+        )?;
 
         if !warten_bis_antwortet(port) {
+            let grund = protokoll_schwanz(port, "browser");
             beenden(port, "browser");
 
             return Err(format!(
-                "Der Browser antwortet nach {WARTEN_SEKUNDEN} s nicht auf Port {port}."
+                "Der Browser antwortet nach {WARTEN_SEKUNDEN} s nicht auf Port {port}.{grund}"
             ));
         }
     }
 
     // Eigene Verbindung statt des gemeinsamen Masters: eine Weiterleitung, die
     // an einem fremden Master haengt, verschwindet mit ihm.
-    let mut ssh = Command::new("ssh");
-    ssh.args([
-        "-N",
-        "-o",
-        "ControlMaster=no",
-        "-o",
-        "ControlPath=none",
-        "-o",
-        "ExitOnForwardFailure=yes",
-        "-o",
-        "ServerAliveInterval=30",
-        "-o",
-        "BatchMode=yes",
-        "-R",
-        &format!("{port}:127.0.0.1:{port}"),
-        nach,
-    ]);
-
-    abgekoppelt(ssh, port, "ssh")?;
+    abgekoppelt(
+        "ssh",
+        &[
+            "-N".to_string(),
+            "-o".to_string(),
+            "ControlMaster=no".to_string(),
+            "-o".to_string(),
+            "ControlPath=none".to_string(),
+            "-o".to_string(),
+            "ExitOnForwardFailure=yes".to_string(),
+            "-o".to_string(),
+            "ServerAliveInterval=30".to_string(),
+            "-o".to_string(),
+            "BatchMode=yes".to_string(),
+            "-R".to_string(),
+            format!("{port}:127.0.0.1:{port}"),
+            nach.to_string(),
+        ],
+        port,
+        "ssh",
+    )?;
 
     // Kurz nachsehen, ob die Weiterleitung haelt. `ExitOnForwardFailure` laesst
     // ssh sonst still enden, und dann stuende hier „gestartet", waehrend auf
@@ -464,8 +649,11 @@ fn hier_starten(nach: &str, port: u16) -> Result<(), String> {
     std::thread::sleep(std::time::Duration::from_millis(1200));
 
     if !laeuft(port, "ssh") {
+        let grund = protokoll_schwanz(port, "ssh");
+
         return Err(format!(
-            "Der Rueckwaertstunnel nach {nach} hat nicht gehalten — ist Port {port} dort belegt?"
+            "Der Rueckwaertstunnel nach {nach} hat nicht gehalten — \
+             ist Port {port} dort belegt?{grund}"
         ));
     }
 
@@ -791,6 +979,35 @@ mod tests {
     }
 
     // -- imkr ist optional ---------------------------------------------------
+
+    #[test]
+    fn der_eigene_name_kommt_aus_imkrs_konfiguration() {
+        // Diese Maschine heisst `omarchy` und ist als `codingmachine`
+        // erreichbar. Der Hostname waere die falsche Antwort — ein `ssh -R`
+        // damit scheitert an der Namensauflösung.
+        // So sieht die echte Datei aus: der Rechnername auf oberster Ebene,
+        // vor dem ersten Abschnitt.
+        assert_eq!(
+            imkr_name("port = 7\nname = \"codingmachine\"\n\n[which_key]").as_deref(),
+            Some("codingmachine")
+        );
+        assert_eq!(imkr_name("name=\"laptop\"").as_deref(), Some("laptop"));
+        assert!(imkr_name("kein name hier").is_none());
+        assert!(imkr_name("name = \"\"").is_none(), "leer ist keine Angabe");
+
+        // Der Fall aus der echten Konfiguration: der Rechnername steht oben,
+        // ein gleichnamiger Schluessel in einem Abschnitt weiter unten. Wer
+        // den ersten Treffer OHNE Abschnittsgrenze nimmt, trifft hier noch
+        // richtig — aber nur zufaellig.
+        assert_eq!(
+            imkr_name("name = \"codingmachine\"\n[[commands]]\nname = \"lazygit\"").as_deref(),
+            Some("codingmachine")
+        );
+        assert!(
+            imkr_name("[[commands]]\nname = \"lazygit\"").is_none(),
+            "ein Name INNERHALB eines Abschnitts ist nicht der Rechnername"
+        );
+    }
 
     #[test]
     fn imkr_antwort_wird_gelesen() {
