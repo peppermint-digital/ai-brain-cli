@@ -558,10 +558,9 @@ fn protokoll_schwanz(port: u16, was: &str) -> String {
     format!("\n{}", letzte.join("\n"))
 }
 
-fn hier_starten(nach: &str, port: u16) -> Result<(), String> {
+fn hier_starten(nach: &str, port: u16) -> Result<String, String> {
     if browser_antwortet(port) && laeuft(port, "ssh") {
-        println!("Steht schon: 127.0.0.1:{port} zeigt auf einen Browser.");
-        return Ok(());
+        return Ok(format!("Steht schon: 127.0.0.1:{port} zeigt auf einen Browser."));
     }
 
     // **Ein fremder Browser auf dem Port ist kein Geschenk.**
@@ -657,15 +656,13 @@ fn hier_starten(nach: &str, port: u16) -> Result<(), String> {
         ));
     }
 
-    println!(
+    Ok(format!(
         "Browser von {} laeuft, Tunnel nach {nach}:127.0.0.1:{port} steht.",
         gethostname::gethostname().to_string_lossy()
-    );
-
-    Ok(())
+    ))
 }
 
-fn hier_zustand(port: u16) -> Result<(), String> {
+fn hier_zustand(port: u16) -> Result<String, String> {
     let rechner = gethostname::gethostname().to_string_lossy().to_string();
     let browser = laeuft(port, "browser");
     let ssh = laeuft(port, "ssh");
@@ -677,45 +674,110 @@ fn hier_zustand(port: u16) -> Result<(), String> {
     // steht auch das da.
     let antwortet = browser_antwortet(port);
 
-    println!("Auf {rechner}, Port {port}:");
-    println!("  Browser: {}", if browser { "laeuft" } else { "laeuft nicht" });
-    println!("  Tunnel : {}", if ssh { "laeuft" } else { "laeuft nicht" });
-    println!(
-        "  Port   : {}",
-        if antwortet {
-            "ein Browser antwortet"
-        } else {
-            "nichts antwortet"
-        }
+    let mut text = format!(
+        "Auf {rechner}, Port {port}:\n  Browser: {}\n  Tunnel : {}\n  Port   : {}\n",
+        if browser { "laeuft" } else { "laeuft nicht" },
+        if ssh { "laeuft" } else { "laeuft nicht" },
+        if antwortet { "ein Browser antwortet" } else { "nichts antwortet" },
     );
 
     if antwortet && !browser {
-        println!();
-        println!("  Der Browser dort stammt nicht von diesem Befehl — vermutlich eine andere Sitzung.");
+        text.push_str(
+            "\n  Der Browser dort stammt nicht von diesem Befehl — vermutlich eine andere \
+             Sitzung oder ein Tunnel aus dem alten Skript.\n",
+        );
     }
 
-    if !browser && !ssh {
-        return Err("Hier laeuft kein Tunnel.".to_string());
+    if !browser && !ssh && !antwortet {
+        return Err(text + "\nHier laeuft kein Tunnel.");
     }
 
-    Ok(())
+    Ok(text)
 }
 
-fn hier_beenden(port: u16) -> Result<(), String> {
+/// Laeufe zu einem Port finden, fuer die es keinen Merker gibt.
+///
+/// **Warum das noetig ist.** Ein Tunnel, den das alte Shell-Skript gestartet
+/// hat, fuehrt keinen Merker — `stop` meldete dann „lief nicht", waehrend auf
+/// dem Port weiter ein Browser antwortete und ihn fuer alle blockierte. Am
+/// 16.10.2026 auf dem Laptop genau so passiert (Port 9222).
+///
+/// Gesucht wird eng: nur Prozesse, die diesen Port in der Befehlszeile tragen,
+/// und nur die beiden Formen, die ein Tunnel hat. `pgrep -f` wuerde sonst auch
+/// den eigenen Aufruf finden — das Muster steht ja darin.
+fn fremde_laeufe(port: u16) -> Vec<u32> {
+    let muster = [
+        format!("remote-debugging-port={port}"),
+        format!("{port}:127.0.0.1:{port}"),
+    ];
+
+    let mut gefunden = Vec::new();
+    let eigen = std::process::id();
+
+    for m in muster {
+        let Ok(ausgabe) = Command::new("pgrep").args(["-f", &m]).output() else {
+            continue;
+        };
+
+        for zeile in String::from_utf8_lossy(&ausgabe.stdout).lines() {
+            if let Ok(pid) = zeile.trim().parse::<u32>() {
+                if pid != eigen && !gefunden.contains(&pid) {
+                    gefunden.push(pid);
+                }
+            }
+        }
+    }
+
+    gefunden
+}
+
+fn hier_beenden(port: u16) -> Result<String, String> {
     let ssh = beenden(port, "ssh");
     let browser = beenden(port, "browser");
 
-    match (ssh, browser) {
-        (false, false) => println!("Hier lief kein Tunnel."),
-        _ => println!(
-            "Beendet: {}{}{}",
+    let mut text = match (ssh, browser) {
+        (false, false) => String::new(),
+        _ => format!(
+            "Beendet: {}{}{}\n",
             if ssh { "Tunnel" } else { "" },
             if ssh && browser { " und " } else { "" },
             if browser { "Browser" } else { "" }
         ),
+    };
+
+    // Jetzt die ohne Merker — etwa aus dem alten Skript.
+    if browser_antwortet(port) || (!ssh && !browser) {
+        let fremde = fremde_laeufe(port);
+
+        if !fremde.is_empty() {
+            for pid in &fremde {
+                let _ = Command::new("kill")
+                    .arg(pid.to_string())
+                    .stdout(Stdio::null())
+                    .stderr(Stdio::null())
+                    .status();
+            }
+
+            std::thread::sleep(std::time::Duration::from_millis(600));
+
+            text.push_str(&format!(
+                "Ausserdem {} Lauf/Laeufe ohne Merker beendet (altes Skript?).\n",
+                fremde.len()
+            ));
+        }
     }
 
-    Ok(())
+    if text.is_empty() {
+        return Ok("Hier lief kein Tunnel.".to_string());
+    }
+
+    if browser_antwortet(port) {
+        text.push_str(&format!(
+            "Achtung: auf Port {port} antwortet weiter ein Browser — der gehoert jemand anderem.\n"
+        ));
+    }
+
+    Ok(text)
 }
 
 // ---------------------------------------------------------------------------
@@ -764,7 +826,7 @@ fn fern(von: &str, befehl: &str, port: u16) -> Result<String, String> {
     Ok(text)
 }
 
-fn ueber_betreiber(wunsch: &Wunsch) -> Result<(), String> {
+fn ueber_betreiber(wunsch: &Wunsch) -> Result<String, String> {
     let (von, nach) = betreiber(wunsch)?;
     let port = wunsch.port;
 
@@ -784,8 +846,9 @@ fn ueber_betreiber(wunsch: &Wunsch) -> Result<(), String> {
                 let bericht = fern(&von, "status", port).unwrap_or_default();
 
                 if bericht.contains("Browser: laeuft") && bericht.contains("Tunnel : laeuft") {
-                    println!("Steht schon: 127.0.0.1:{port} zeigt auf den Browser von {von}.");
-                    return Ok(());
+                    return Ok(format!(
+                        "Steht schon: 127.0.0.1:{port} zeigt auf den Browser von {von}."
+                    ));
                 }
 
                 return Err(format!(
@@ -795,7 +858,10 @@ fn ueber_betreiber(wunsch: &Wunsch) -> Result<(), String> {
                 ));
             }
 
-            println!("Starte den Browser auf {von}, Tunnel nach {nach}:{port} …");
+            // **Kein Fortschrittsgeschwaetz auf stdout.** Im MCP-Modus ist
+            // stdout der JSON-RPC-Kanal; eine Zwischenmeldung dort zerstoert
+            // das Protokoll. Was der Mensch sehen soll, steht im Ergebnis.
+            eprintln!("Starte den Browser auf {von}, Tunnel nach {nach}:{port} …");
 
             fern(&von, &format!("start --nach '{nach}'"), port)?;
 
@@ -806,27 +872,24 @@ fn ueber_betreiber(wunsch: &Wunsch) -> Result<(), String> {
                 ));
             }
 
-            println!(
+            Ok(format!(
                 "Bereit: der Browser von {von} ist hier unter 127.0.0.1:{port}.\n\
                  Benutzen mit: agent-browser --cdp {port}\n\
-                 Am Ende schliessen mit: ai-brain-harness tunnel stop"
-            );
-
-            Ok(())
+                 Am Ende schliessen mit: tunnel-stop (oder ai-brain-harness tunnel stop)"
+            ))
         }
         Tat::Zustand | Tat::Beenden => {
             let tat = if wunsch.tat == Tat::Zustand { "status" } else { "stop" };
             let ausgabe = fern(&von, tat, port)?;
 
-            print!("{ausgabe}");
-
             if wunsch.tat == Tat::Zustand && !browser_antwortet(port) {
                 return Err(format!(
-                    "Hier antwortet auf Port {port} kein Browser — der Tunnel von {von} steht nicht."
+                    "{ausgabe}\nHier antwortet auf Port {port} kein Browser — \
+                     der Tunnel von {von} steht nicht."
                 ));
             }
 
-            Ok(())
+            Ok(ausgabe)
         }
     }
 }
@@ -923,14 +986,124 @@ pub fn verwalten(args: &[String]) -> Result<(), String> {
             .clone()
             .unwrap_or_else(|| "codingmachine".to_string());
 
-        return match wunsch.tat {
+        let bericht = match wunsch.tat {
             Tat::Starten => hier_starten(&nach, wunsch.port),
             Tat::Zustand => hier_zustand(wunsch.port),
             Tat::Beenden => hier_beenden(wunsch.port),
-        };
+        }?;
+
+        println!("{}", bericht.trim_end());
+
+        return Ok(());
     }
 
-    ueber_betreiber(&wunsch)
+    println!("{}", ueber_betreiber(&wunsch)?.trim_end());
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Als MCP-Werkzeuge
+// ---------------------------------------------------------------------------
+
+/// Die drei Werkzeuge, die jeder Agent rufen kann.
+///
+/// **Warum im Proxy und nicht bei den Rechnerwerkzeugen.** `rechner-mcp` bekommt
+/// nur die Maske; eine gewoehnliche Claude-Code-Sitzung auf diesem Rechner sieht
+/// ausschliesslich den `ai-brain`-Server. Wer „oeffne den Tunnel" sagen will,
+/// ohne zu wissen, in welcher Huelle er sitzt, muss das Werkzeug also dort
+/// finden. Und der Riegel von `rechner.rs` passt hier nicht: er trennt lesen von
+/// aendern, aber den eigenen Browser auf dem eigenen Rechner zu oeffnen ist
+/// keine Rechteerhoehung — es ist genau das, was der Mensch gerade verlangt.
+pub fn werkzeuge() -> Vec<serde_json::Value> {
+    let von = serde_json::json!({
+        "type": "string",
+        "description": "An welchem Rechner der Mensch sitzt (z. B. laptop, desktop). \
+                        Weglassen, solange er es nicht selbst nennt — der Befehl findet ihn."
+    });
+
+    let port = serde_json::json!({
+        "type": "integer",
+        "description": "Vorgabe 9222. Nur aendern, wenn dort schon ein fremder Browser antwortet."
+    });
+
+    vec![
+        serde_json::json!({
+            "name": "tunnel-start",
+            "description": "Oeffnet den Browser des Menschen und tunnelt ihn hierher. \
+                            Dafuer, dass DER MENSCH etwas sieht — zusehen, einloggen, Captcha. \
+                            Zum eigenen Pruefen und Testen genuegt agent-browser headless, \
+                            dafuer ist das hier nicht gedacht. Danach zeigt 127.0.0.1:<port> \
+                            auf jenen Browser (agent-browser --cdp, playwright-tunnel, \
+                            chrome-devtools-tunnel).",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "von": von, "port": port },
+            },
+            "annotations": { "readOnlyHint": false },
+        }),
+        serde_json::json!({
+            "name": "tunnel-status",
+            "description": "Steht der Tunnel? Nennt Browser, Tunnel und ob auf dem Port \
+                            ueberhaupt etwas antwortet — die drei koennen auseinandergehen.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "port": port.clone() },
+            },
+            "annotations": { "readOnlyHint": true },
+        }),
+        serde_json::json!({
+            "name": "tunnel-stop",
+            "description": "Schliesst den Tunnel und den Browser wieder. Gehoert ans Ende \
+                            jedes Zeigens — ein offener Fernsteuerungs-Port gibt volle \
+                            Kontrolle ueber diesen Browser.",
+            "inputSchema": {
+                "type": "object",
+                "properties": { "von": von.clone(), "port": port.clone() },
+            },
+            "annotations": { "readOnlyHint": false },
+        }),
+    ]
+}
+
+/// Einen Werkzeugaufruf bedienen — `None`, wenn er uns nicht gehoert.
+pub fn fuer_mcp(name: &str, argumente: &serde_json::Value) -> Option<Result<String, String>> {
+    let tat = match name {
+        "tunnel-start" => Tat::Starten,
+        "tunnel-status" => Tat::Zustand,
+        "tunnel-stop" => Tat::Beenden,
+        _ => return None,
+    };
+
+    let wunsch = Wunsch {
+        tat,
+        von: argumente
+            .get("von")
+            .and_then(|v| v.as_str())
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty()),
+        nach: None,
+        port: argumente
+            .get("port")
+            .and_then(|v| v.as_u64())
+            .and_then(|v| u16::try_from(v).ok())
+            .unwrap_or(PORT_STANDARD),
+        hier: false,
+    };
+
+    // Dieselbe Weggabelung wie auf der Befehlszeile: wer am Bildschirm sitzt,
+    // braucht keinen Umweg über sich selbst.
+    if bildschirm_hier() {
+        let nach = "codingmachine".to_string();
+
+        return Some(match wunsch.tat {
+            Tat::Starten => hier_starten(&nach, wunsch.port),
+            Tat::Zustand => hier_zustand(wunsch.port),
+            Tat::Beenden => hier_beenden(wunsch.port),
+        });
+    }
+
+    Some(ueber_betreiber(&wunsch))
 }
 
 #[cfg(test)]
@@ -1126,6 +1299,43 @@ mod tests {
         assert!(fremd(true, false), "antwortet jemand ohne unseren Merker: Fremder");
         assert!(!fremd(true, true), "unser eigener Browser ist kein Fremder");
         assert!(!fremd(false, false), "antwortet nichts, ist auch nichts fremd");
+    }
+
+    // -- Als MCP-Werkzeuge ---------------------------------------------------
+
+    #[test]
+    fn die_drei_werkzeuge_sind_da_und_richtig_markiert() {
+        let w = werkzeuge();
+        let namen: Vec<&str> = w.iter().map(|x| x["name"].as_str().unwrap()).collect();
+
+        assert_eq!(namen, vec!["tunnel-start", "tunnel-status", "tunnel-stop"]);
+
+        // Nur das Nachsehen ist lesend. Ein falsches `readOnlyHint` liesse ein
+        // Produkt mit Nur-Lese-Zugang den Tunnel oeffnen.
+        assert_eq!(w[0]["annotations"]["readOnlyHint"], false);
+        assert_eq!(w[1]["annotations"]["readOnlyHint"], true);
+        assert_eq!(w[2]["annotations"]["readOnlyHint"], false);
+    }
+
+    #[test]
+    fn jedes_werkzeug_hat_ein_schema() {
+        for x in werkzeuge() {
+            assert_eq!(x["inputSchema"]["type"], "object", "{}", x["name"]);
+            assert!(
+                x["description"].as_str().unwrap().len() > 40,
+                "{} braucht eine Beschreibung, aus der ein Modell die Lage erkennt",
+                x["name"]
+            );
+        }
+    }
+
+    #[test]
+    fn fremde_werkzeugnamen_gehoeren_nicht_uns() {
+        // Der Proxy fragt uns bei JEDEM tools/call. Wer hier zu viel beansprucht,
+        // verschluckt Werkzeuge der Instanz.
+        assert!(fuer_mcp("list-tasks-tool", &serde_json::json!({})).is_none());
+        assert!(fuer_mcp("tunnel", &serde_json::json!({})).is_none());
+        assert!(fuer_mcp("", &serde_json::json!({})).is_none());
     }
 
     #[test]

@@ -1033,6 +1033,42 @@ Gewachsen aus `~/.local/bin/agent-tunnel` (chezmoi) von der Laptop-Sitzung. Im
 Harness, damit `install.sh` es überall mitbringt und es **ohne chezmoi und ohne
 imkr** funktioniert — imkr wird benutzt, wenn es da ist.
 
+### Auch als Werkzeug, nicht nur als Befehl
+
+Am `ai-brain`-MCP-Server stehen `tunnel-start`, `tunnel-status` und
+`tunnel-stop`. Damit genügt „öffne den Tunnel" — jeder Agent kann es rufen,
+ohne die Befehlszeile zu kennen.
+
+**Warum im Proxy und nicht bei den Rechnerwerkzeugen.** `rechner-mcp` bekommt
+nur die Maske; eine gewöhnliche Claude-Code-Sitzung sieht ausschliesslich den
+`ai-brain`-Server. Und der Riegel von `rechner.rs` passt hier nicht: er trennt
+lesen von ändern, aber den eigenen Browser auf dem eigenen Rechner zu öffnen ist
+keine Rechteerhöhung — es ist genau das, was der Mensch gerade verlangt.
+
+Zwei Feinheiten, die dabei zählen:
+
+- Die drei Werkzeuge werden **vor** dem Token-Abruf bedient. Der Tunnel hat mit
+  AI Brain nichts zu tun; ihn von einer erreichbaren Instanz abhängig zu machen
+  wäre eine Kopplung ohne Gegenwert.
+- Scheitert das Anreichern der Werkzeugliste — unerwartete Antwortform, kaputtes
+  JSON —, geht die Antwort der Instanz **unverändert** durch. Eine Werkzeugliste
+  halb zu ersetzen wäre schlimmer als eine ohne unsere drei.
+
+Im MCP-Modus ist stdout der JSON-RPC-Kanal. Deshalb geben die Tunnel-Funktionen
+ihren Bericht **zurück**, statt ihn zu drucken; nur die Befehlszeile druckt, und
+die einzige Zwischenmeldung geht nach stderr.
+
+### `stop` erwischt auch Tunnel ohne Merker
+
+Ein Tunnel, den das alte Shell-Skript gestartet hat, führt keinen Merker — `stop`
+meldete dort „lief nicht", während der Port weiter belegt war und für alle
+anderen blockiert blieb. Jetzt sucht `stop` zusätzlich die Läufe zum Port und
+beendet sie.
+
+Gesucht wird eng: nur Prozesse, die diesen Port in der Befehlszeile tragen, und
+nur die beiden Formen, die ein Tunnel hat (`remote-debugging-port=<n>` und
+`<n>:127.0.0.1:<n>`). Ein weiteres Muster fände den eigenen Aufruf mit.
+
 ### Wie der Rechner des Menschen gefunden wird
 
 In dieser Reihenfolge, und nur so:

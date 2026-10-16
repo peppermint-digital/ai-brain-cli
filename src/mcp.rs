@@ -72,6 +72,21 @@ pub fn serve() -> Result<(), String> {
 
         let is_notification = message.get("id").is_none();
 
+        // **Eigene Werkzeuge VOR dem Token.** Der Tunnel hat mit AI Brain
+        // nichts zu tun: er oeffnet den Browser des Menschen auf dessen
+        // Rechner. Wer ihn erst nach einem Token-Abruf bedient, macht ihn von
+        // etwas abhaengig, das er nicht braucht — und unbrauchbar, wenn die
+        // Instanz gerade nicht erreichbar ist.
+        if let Some(antwort) = eigenes_werkzeug(&message) {
+            if !is_notification {
+                writeln!(stdout, "{antwort}")
+                    .map_err(|e| format!("stdout nicht beschreibbar: {e}"))?;
+                stdout.flush().map_err(|e| format!("stdout nicht leerbar: {e}"))?;
+            }
+
+            continue;
+        }
+
         let token = match token(&connection, &mut cache) {
             Ok(token) => token,
             Err(err) => {
@@ -88,6 +103,8 @@ pub fn serve() -> Result<(), String> {
         match forward(&connection, &token, trimmed) {
             Ok(Some(body)) => {
                 if !is_notification {
+                    let body = mit_eigenen_werkzeugen(&message, body);
+
                     writeln!(stdout, "{body}").map_err(|e| format!("stdout nicht beschreibbar: {e}"))?;
                     stdout.flush().map_err(|e| format!("stdout nicht leerbar: {e}"))?;
                 }
@@ -414,6 +431,76 @@ fn forward(connection: &Connection, token: &str, payload: &str) -> Result<Option
     Ok(Some(trimmed.to_string()))
 }
 
+/// Gehoert dieser Aufruf einem Werkzeug, das der Harness SELBST bedient?
+///
+/// Nur `tools/call`, und nur fuer die Namen, die `tunnel::fuer_mcp` kennt.
+/// Alles andere geht unveraendert an die Instanz — dieser Server ist ein Proxy
+/// und soll es bleiben.
+fn eigenes_werkzeug(message: &serde_json::Value) -> Option<String> {
+    if message.get("method").and_then(|m| m.as_str()) != Some("tools/call") {
+        return None;
+    }
+
+    let name = message.pointer("/params/name")?.as_str()?;
+
+    let argumente = message
+        .pointer("/params/arguments")
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    let ergebnis = crate::tunnel::fuer_mcp(name, &argumente)?;
+    let id = message.get("id").cloned().unwrap_or(serde_json::Value::Null);
+
+    let (text, fehler) = match ergebnis {
+        Ok(text) => (text, false),
+        Err(grund) => (grund, true),
+    };
+
+    Some(
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": {
+                "content": [{ "type": "text", "text": text }],
+                "isError": fehler,
+            },
+        })
+        .to_string(),
+    )
+}
+
+/// Die eigenen Werkzeuge in eine `tools/list`-Antwort einfuegen.
+///
+/// Schlaegt das Anreichern fehl — unerwartete Antwortform, kaputtes JSON —,
+/// geht die Antwort der Instanz **unveraendert** durch. Eine Werkzeugliste
+/// halb zu ersetzen waere schlimmer als eine ohne unsere drei.
+fn mit_eigenen_werkzeugen(message: &serde_json::Value, body: String) -> String {
+    if message.get("method").and_then(|m| m.as_str()) != Some("tools/list") {
+        return body;
+    }
+
+    // Der Ereignisstrom (`data:`-Zeilen) wird nicht angefasst: dort muesste die
+    // Rahmung mitgeschrieben werden, und das ist dieser Stelle nicht wert.
+    if body.lines().any(|z| z.starts_with("data:")) {
+        return body;
+    }
+
+    let Ok(mut antwort) = serde_json::from_str::<serde_json::Value>(&body) else {
+        return body;
+    };
+
+    let Some(liste) = antwort
+        .pointer_mut("/result/tools")
+        .and_then(|t| t.as_array_mut())
+    else {
+        return body;
+    };
+
+    liste.extend(crate::tunnel::werkzeuge());
+
+    antwort.to_string()
+}
+
 fn respond_with_error(
     stdout: &mut std::io::Stdout,
     request: &serde_json::Value,
@@ -521,5 +608,82 @@ mod tests {
 
         // Ein einzelnes Feld ohne Leerzeichen hinter dem Doppelpunkt.
         assert_eq!(nutzlast("data:{\"a\":1}"), "{\"a\":1}");
+    }
+}
+
+#[cfg(test)]
+mod proxy_tests {
+    use super::*;
+
+    #[test]
+    fn nur_tools_call_wird_abgefangen() {
+        // Alles andere ist Sache der Instanz. Dieser Server ist ein Proxy.
+        for methode in ["tools/list", "initialize", "ping"] {
+            let m = serde_json::json!({"jsonrpc":"2.0","id":1,"method":methode});
+
+            assert!(eigenes_werkzeug(&m).is_none(), "{methode}");
+        }
+    }
+
+    #[test]
+    fn ein_fremdes_werkzeug_geht_an_die_instanz() {
+        let m = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+            "params": { "name": "list-tasks-tool", "arguments": {} },
+        });
+
+        assert!(eigenes_werkzeug(&m).is_none());
+    }
+
+    #[test]
+    fn die_werkzeugliste_wird_angereichert() {
+        let m = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/list"});
+        let koerper = serde_json::json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": { "tools": [{ "name": "list-tasks-tool" }] },
+        })
+        .to_string();
+
+        let neu = mit_eigenen_werkzeugen(&m, koerper);
+        let wert: serde_json::Value = serde_json::from_str(&neu).expect("lesbar");
+        let namen: Vec<&str> = wert["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["name"].as_str().unwrap())
+            .collect();
+
+        assert!(namen.contains(&"list-tasks-tool"), "die Instanz bleibt drin");
+        assert!(namen.contains(&"tunnel-start"));
+        assert_eq!(namen.len(), 4);
+    }
+
+    #[test]
+    fn eine_unerwartete_antwort_geht_unveraendert_durch() {
+        // **Halb ersetzen waere schlimmer als nicht anreichern.** Wer hier bei
+        // einer unbekannten Form etwas zurueckgibt, kann eine ganze
+        // Werkzeugliste verschlucken.
+        let m = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/list"});
+
+        for koerper in [
+            "kein json".to_string(),
+            serde_json::json!({"result": {}}).to_string(),
+            serde_json::json!({"error": {"message":"nein"}}).to_string(),
+            "data: {\"result\":{\"tools\":[]}}\n".to_string(),
+        ] {
+            assert_eq!(
+                mit_eigenen_werkzeugen(&m, koerper.clone()),
+                koerper,
+                "unveraendert durchlassen"
+            );
+        }
+    }
+
+    #[test]
+    fn eine_andere_methode_wird_nicht_angereichert() {
+        let m = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"tools/call"});
+        let koerper = serde_json::json!({"result": {"tools": []}}).to_string();
+
+        assert_eq!(mit_eigenen_werkzeugen(&m, koerper.clone()), koerper);
     }
 }
