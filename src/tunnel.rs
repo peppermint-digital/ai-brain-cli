@@ -770,9 +770,29 @@ fn ueber_betreiber(wunsch: &Wunsch) -> Result<(), String> {
 
     match wunsch.tat {
         Tat::Starten => {
+            // **Ein antwortender Port ist noch kein eigener Tunnel.**
+            // Hier stand nur `browser_antwortet`, und damit galt jeder fremde
+            // Browser als Erfolg: am 16.10.2026 meldete `tunnel start` auf dem
+            // Standardport 9222 „Steht schon", wo in Wirklichkeit der Tunnel
+            // des alten Skripts von gestern lag (ohne Merker). Der Agent haette
+            // dort fremde Tabs gesteuert — denselben Riegel hat der lokale Weg
+            // schon, dem Fernweg fehlte er.
+            //
+            // Gefragt wird der Rechner des Menschen: nur wenn DORT unser
+            // Browser und unser Tunnel laufen, gehoert der Port uns.
             if browser_antwortet(port) {
-                println!("Steht schon: 127.0.0.1:{port} zeigt auf einen Browser.");
-                return Ok(());
+                let bericht = fern(&von, "status", port).unwrap_or_default();
+
+                if bericht.contains("Browser: laeuft") && bericht.contains("Tunnel : laeuft") {
+                    println!("Steht schon: 127.0.0.1:{port} zeigt auf den Browser von {von}.");
+                    return Ok(());
+                }
+
+                return Err(format!(
+                    "Auf Port {port} antwortet schon ein Browser, aber auf {von} laeuft kein \
+                     Tunnel dieses Befehls — es ist ein fremder (altes Skript, andere Sitzung).\n\
+                     Einen anderen Port nehmen: ai-brain-harness tunnel start --port <n>"
+                ));
             }
 
             println!("Starte den Browser auf {von}, Tunnel nach {nach}:{port} …");
