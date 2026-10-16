@@ -22,6 +22,25 @@ use serde::Deserialize;
 use std::io::{BufRead, Read, Write};
 use std::time::{Duration, Instant};
 
+/// Frist fuer einen Werkzeugaufruf an die Instanz.
+///
+/// **Ohne Frist legt eine festgefahrene Verbindung die ganze Sitzung lahm.**
+/// Dieser Server arbeitet stdin streng der Reihe nach ab: haengt eine Anfrage,
+/// steht alles dahinter an. Am 16.10.2026 genau so erlebt — der MCP-Server
+/// einer 25 Stunden alten Sitzung wartete mit vier offenen Sockets, und jeder
+/// weitere Werkzeugaufruf lief ins Leere, waehrend derselbe Aufruf durch einen
+/// frischen Prozess in 0,4 s antwortete. Von aussen sah es aus, als sei die
+/// Instanz krank; sie war es nicht.
+///
+/// Grosszuegig gewaehlt: `get-context-tool` liefert sechsstellige Zeichenmengen,
+/// und ein Abbruch mitten in einer echten Antwort waere schlimmer als Warten.
+/// Entscheidend ist nicht die Hoehe, sondern dass es ueberhaupt eine gibt.
+const FRIST_WERKZEUG: Duration = Duration::from_secs(180);
+
+/// Frist fuer die Token-Beschaffung. Kurz: das ist ein kleiner Austausch, und
+/// ohne Token geht ohnehin nichts weiter.
+const FRIST_TOKEN: Duration = Duration::from_secs(20);
+
 #[derive(Debug, Deserialize)]
 struct TokenResponse {
     access_token: String,
@@ -234,6 +253,7 @@ fn token(connection: &Connection, cache: &mut Option<TokenCache>) -> Result<Stri
     }
 
     let response = ureq::post(&connection.token_endpoint)
+        .timeout(FRIST_TOKEN)
         .set("Accept", "application/json")
         .send_form(&[
             ("grant_type", "client_credentials"),
@@ -386,6 +406,7 @@ fn nutzlast(body: &str) -> String {
 
 fn forward(connection: &Connection, token: &str, payload: &str) -> Result<Option<String>, String> {
     let response = ureq::post(&connection.mcp_url)
+        .timeout(FRIST_WERKZEUG)
         .set("Authorization", &format!("Bearer {token}"))
         .set("Content-Type", "application/json")
         .set("Accept", "application/json, text/event-stream")
