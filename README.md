@@ -1006,6 +1006,83 @@ erkannt an seiner Marke — nicht an seiner Position.
 Eingerichtet wird er **ausdrücklich**, nicht still über `sync`: ein Hook läuft
 bei jedem Sitzungsende mit, und so etwas gehört nicht nebenbei installiert.
 
+## Den Browser zeigen lassen
+
+Ein Agent auf einem anderen Rechner startet seinen Browser **dort** — also
+ohne Bildschirm. Zum Prüfen und Testen genügt das. Soll der Mensch aber zusehen,
+sich einloggen oder ein Captcha lösen, muss es der Browser des Rechners sein,
+**an dem er gerade sitzt**.
+
+```bash
+ai-brain-harness tunnel start           # findet den Rechner des Menschen selbst
+ai-brain-harness tunnel start --von desktop
+ai-brain-harness tunnel status
+ai-brain-harness tunnel stop
+```
+
+Zusätze: `--port <n>` (Vorgabe 9222, je Port ein eigener Browser),
+`--nach <host>` (unter welchem Namen der Rechner des Menschen diesen hier
+erreicht — Vorgabe ist der eigene Hostname) und `--hier` (nicht über den
+Rechner des Menschen gehen, sondern lokal ausführen; das setzt der Fernaufruf
+selbst).
+
+Danach zeigt `127.0.0.1:9222` hier auf jenen Browser:
+`agent-browser --cdp 9222`, oder die `-tunnel`-MCPs.
+
+Gewachsen aus `~/.local/bin/agent-tunnel` (chezmoi) von der Laptop-Sitzung. Im
+Harness, damit `install.sh` es überall mitbringt und es **ohne chezmoi und ohne
+imkr** funktioniert — imkr wird benutzt, wenn es da ist.
+
+### Wie der Rechner des Menschen gefunden wird
+
+In dieser Reihenfolge, und nur so:
+
+1. `--von` — was der Mensch sagt, gilt.
+2. `imkr operator` — weiss es, wenn er in imkr arbeitet. **Optional:** fehlt
+   imkr, geht es weiter statt zu scheitern.
+3. `SSH_CONNECTION` — der Rechner, über den er gerade hier ist; die IP wird
+   über `~/.ssh/config` zum Namen aufgelöst, damit Nutzer, Schlüssel und Port
+   stimmen.
+
+Findet sich nichts, wird **nicht geraten**: ein falscher Rechner startet einen
+Browser vor einem leeren Stuhl, und der Agent wartet auf etwas, das niemand
+sieht. Dann fragt der Befehl nach `--von`.
+
+### Zwei Riegel, die aus dem Betrieb kommen
+
+**Nie das Hauptprofil.** Der Fernsteuerungs-Port gibt volle Kontrolle über den
+Browser, der ihn öffnet — jede Seite, jedes Cookie, jede angemeldete Sitzung.
+Deshalb ein eigenes Profil unter `~/.cache/agent-chrome`, und je Port ein
+eigenes: zwei Tunnel sind zwei Browser.
+
+**Ein fremder Browser auf dem Port ist kein Geschenk.** Antwortet dort etwas,
+das nicht von diesem Befehl stammt, bricht `start` ab. Sonst reichte der Tunnel
+den Browser einer anderen Sitzung durch, und der Agent dahinter steuerte fremde
+Tabs. Auf einem Rechner mit parallelen Sitzungen ist das der Normalfall, nicht
+die Ausnahme — am 16.10.2026 lag auf Port 9333 genau so einer.
+
+### Unterschied zum Skript
+
+`agent-tunnel` hält am Bildschirm Browser und Tunnel im Vordergrund, Ctrl+C
+beendet beides. Hier läuft immer **abgekoppelt**, und `tunnel stop` räumt auf:
+dieser Befehl wird von einem Agenten gerufen, der keine Taste drücken kann und
+auf eine Antwort wartet. Ein Vordergrundprozess wäre dort ein hängender Aufruf.
+
+### Wenn die Gegenseite alt ist
+
+Läuft auf dem Rechner des Menschen ein Harness ohne `tunnel`, sagt der Befehl
+das — und zwar als Zustand **jener** Maschine:
+
+```
+Fehler: Auf laptop laeuft ein Harness, der 'tunnel' noch nicht kennt.
+Dort aktualisieren: curl -fsSL <instanz>/install.sh | sh
+```
+
+Das ist mit Absicht so deutlich. Vorher wurde die Ausgabe des Fernaufrufs
+durchgereicht, und dessen „Unbekannter Befehl: tunnel" erschien **hier** — als
+hätte der Befehl auf diesem Rechner nicht existiert. Eine halbe Stunde
+Fehlersuche am falschen Ende, bis eine Marke im Code bewies, dass er läuft.
+
 ## Weitere Befehle
 
 ```bash

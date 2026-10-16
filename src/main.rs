@@ -46,6 +46,7 @@ mod rechner;
 mod schleife;
 mod register;
 mod taktgeber;
+mod tunnel;
 mod verbrauch;
 mod select;
 mod sitzung;
@@ -217,6 +218,7 @@ fn main() -> ExitCode {
         Some("taktgeber") => taktgeber::verwalten(&args[1..]),
         Some("schleife") => schleife::verwalten(&args[1..]),
         Some("verbrauch") => verbrauch::verwalten(&args[1..]),
+        Some("tunnel") => tunnel::verwalten(&args[1..]),
         Some("erinnerungen") => erinnerungen::abgleichen(&args[1..]),
         Some("auftraege") => auftrag::anzeigen(&args[1..]),
         Some("auftrag") => auftrag::annehmen(&args[1..]),
